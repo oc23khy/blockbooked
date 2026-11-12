@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { categories, isServiceTown, serviceTowns, type ServiceOffering } from "@/lib/marketplace";
+import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
 function parseServices(raw: string): ServiceOffering[] {
@@ -103,6 +104,7 @@ function readListing(formData: FormData) {
 
 export async function saveProviderListing(formData: FormData) {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("providerListing", session.user.id, "/dashboard");
   if (session.profile.role !== "provider" && session.profile.role !== "admin") {
     redirect("/list-your-business");
   }
@@ -140,6 +142,7 @@ export async function saveProviderListing(formData: FormData) {
 
 export async function reviewProvider(formData: FormData) {
   const session = await requireSession("/admin");
+  await redirectIfRateLimited("providerListing", session.user.id, "/admin");
   if (session.profile.role !== "admin") redirect("/");
 
   const id = String(formData.get("providerId") ?? "");

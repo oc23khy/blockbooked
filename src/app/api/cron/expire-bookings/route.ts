@@ -1,4 +1,5 @@
 import { cronAuthorized, expireDueBookings } from "@/lib/bookings/expire";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,11 @@ async function run(request: Request) {
   }
   if (!cronAuthorized(request)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 });
+  }
+  try {
+    await createAdminClient().rpc("purge_stale_rate_limits");
+  } catch {
+    // Expiration and refunds still run when old counters cannot be removed.
   }
   const result = await expireDueBookings();
   if (result.error && result.expired.length === 0) {

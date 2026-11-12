@@ -4,12 +4,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { parseCatalogSubmission, type CatalogFormState } from "@/lib/scheduling/catalog";
 import { localInstants } from "@/lib/scheduling/rules";
+import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-async function ownedProvider() {
+async function ownedProvider(operation: "providerSchedule" | "providerImage" = "providerSchedule") {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited(operation, session.user.id, "/dashboard");
   if (session.profile.role !== "provider" && session.profile.role !== "admin") redirect("/list-your-business");
   const { data } = await session.supabase.from("providers").select("id, timezone").eq("owner_id", session.user.id).maybeSingle();
   if (!data) redirect("/dashboard?error=Create%20your%20listing%20first");
@@ -189,7 +191,7 @@ export async function removeTimeOff(formData: FormData) {
 }
 
 export async function uploadProviderImage(formData: FormData) {
-  const { session, providerId } = await ownedProvider();
+  const { session, providerId } = await ownedProvider("providerImage");
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) back("Choose an image.");
   if (file.size > 5_000_000) back("Images must be 5 MB or smaller.");

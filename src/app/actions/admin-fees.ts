@@ -3,11 +3,13 @@
 import { redirect } from "next/navigation";
 import { canAccessAdminCenter } from "@/lib/admin/access";
 import { runSandboxFeeBackfill } from "@/lib/admin/run-fee-backfill";
+import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
 export async function reconcileSandboxFees() {
   const session = await requireSession("/admin");
   if (!canAccessAdminCenter(session.profile.role)) redirect("/");
+  await redirectIfRateLimited("adminReconcile", session.user.id, "/admin");
   const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
   if (!stripeKey.startsWith("sk_test_")) {
     redirect("/admin?error=Stripe%20test%20mode%20is%20required%20before%20recording%20fees.");

@@ -71,6 +71,7 @@ const pinMessages: Record<string, string> = {
   not_found: "That booking could not be found.",
   invalid_format: "Enter the 6-digit PIN from the customer.",
   unavailable: "This PIN can no longer be used.",
+  rate_limited: "Too many attempts. Wait a few minutes and try again.",
   error: "The PIN could not be checked.",
 };
 

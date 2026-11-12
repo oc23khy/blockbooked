@@ -17,6 +17,7 @@ import { quoteFromCatalog } from "@/lib/payments/money";
 import { releaseProviderTransfer, requestRefund, startCheckout } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
+import { redirectIfRateLimited, reserveBookingRateLimit } from "@/lib/rate-limit";
 import { requireSession, safeNextPath } from "@/lib/session";
 
 const windows = new Set(["Morning", "Afternoon", "Evening"]);
@@ -92,6 +93,8 @@ export async function createBooking(formData: FormData) {
     }
   }
 
+  const bookingReceipt = await reserveBookingRateLimit("createBooking", session.user.id, returnPath);
+
   const inserted = await session.supabase
     .from("booking_requests")
     .insert({
@@ -103,6 +106,7 @@ export async function createBooking(formData: FormData) {
       contact_phone: phone,
       service_name: serviceName,
       status: "pending",
+      rate_limit_receipt: bookingReceipt,
     })
     .select("id")
     .single();
@@ -120,7 +124,8 @@ export async function createBooking(formData: FormData) {
       ends_at: new Date(new Date(startsAtRaw).getTime() + scheduledService.duration_minutes * 60_000).toISOString(),
     });
     if (reserved.error) {
-      await session.supabase
+      const cleanup = isServiceRoleConfigured() ? createAdminClient() : session.supabase;
+      await cleanup
         .from("booking_requests")
         .update({ status: "cancelled" })
         .eq("id", inserted.data.id)
@@ -147,6 +152,7 @@ export async function createBooking(formData: FormData) {
     redirect(`${returnPath}?notice=Request%20sent`);
   }
 
+  await redirectIfRateLimited("checkout", session.user.id, "/account");
   let checkoutUrl: string;
   try {
     checkoutUrl = await startCheckout({
@@ -223,9 +229,11 @@ export async function updateBookingStatus(formData: FormData) {
     }
   }
 
+  const statusReceipt = await reserveBookingRateLimit("bookingStatus", session.user.id, returnTo);
+
   const updated = await session.supabase
     .from("booking_requests")
-    .update({ status: nextStatus })
+    .update({ status: nextStatus, rate_limit_receipt: statusReceipt })
     .eq("id", bookingId)
     .select("status")
     .maybeSingle();
@@ -296,6 +304,7 @@ export async function submitCompletionPin(formData: FormData) {
 
 export async function requestCompletionReview(formData: FormData) {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("completionReview", session.user.id, "/dashboard");
   const bookingId = String(formData.get("bookingId") ?? "");
   const note = String(formData.get("note") ?? "").trim().slice(0, 500);
   const { data, error } = await session.supabase.rpc("request_completion_review", {

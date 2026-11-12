@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { siteUrl } from "@/lib/payments/stripe-server";
+import { redirectIfIpRateLimited, redirectIfRateLimited } from "@/lib/rate-limit";
 import { safeNextPath } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -15,6 +16,7 @@ export async function signIn(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const next = safeNextPath(String(formData.get("next") ?? ""));
+  await redirectIfIpRateLimited("sign-in", `/login?next=${encodeURIComponent(next)}`);
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -38,6 +40,7 @@ export async function signUp(formData: FormData) {
     redirect("/signup?error=Use%20at%20least%208%20characters");
   }
 
+  await redirectIfIpRateLimited("sign-up", "/signup");
   const supabase = await createClient();
   const origin = siteUrl();
   const { data, error } = await supabase.auth.signUp({
@@ -72,6 +75,7 @@ export async function updateProfile(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/account");
+  await redirectIfRateLimited("updateProfile", user.id, "/account");
 
   const fullName = String(formData.get("fullName") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
@@ -87,6 +91,11 @@ export async function updateProfile(formData: FormData) {
 export async function becomeProvider() {
   configuredOrRedirect();
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login?next=/list-your-business");
+  await redirectIfRateLimited("becomeProvider", user.id, "/list-your-business");
   const { error } = await supabase.rpc("become_provider");
   if (error) redirect(`/list-your-business?error=${encodeURIComponent(error.message)}`);
   redirect("/dashboard");

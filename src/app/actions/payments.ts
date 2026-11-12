@@ -13,10 +13,12 @@ import {
 } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { isServiceRoleConfigured } from "@/lib/supabase/admin";
+import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
 export async function connectStripeAccount() {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("connectStripe", session.user.id, "/dashboard");
   if (!stripeTestKeyConfigured() || !isServiceRoleConfigured()) {
     redirect("/dashboard?error=Stripe%20test%20payments%20are%20not%20configured.");
   }
@@ -34,6 +36,7 @@ export async function connectStripeAccount() {
 
 export async function payForBooking(formData: FormData) {
   const session = await requireSession("/account");
+  await redirectIfRateLimited("checkout", session.user.id, "/account");
   const bookingId = String(formData.get("bookingId") ?? "");
   if (!stripeTestKeyConfigured() || !isServiceRoleConfigured()) {
     redirect("/account?error=Stripe%20test%20payments%20are%20not%20configured.");
@@ -61,6 +64,7 @@ export async function adminRefund(_formData: FormData): Promise<never> {
 
 export async function sendQuote(formData: FormData) {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("sendQuote", session.user.id, "/dashboard");
   const bookingId = String(formData.get("bookingId") ?? "");
   const amountCents = parseFixedPriceCents(String(formData.get("amount") ?? ""));
   if (!amountCents) redirect("/dashboard?error=Enter%20a%20fixed%20dollar%20quote.");
@@ -82,6 +86,7 @@ export async function sendQuote(formData: FormData) {
 
 export async function saveMilestones(formData: FormData) {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("milestones", session.user.id, "/dashboard");
   const bookingId = String(formData.get("bookingId") ?? "");
   const parts = [1, 2, 3]
     .map((index) => ({

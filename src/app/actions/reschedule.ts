@@ -6,6 +6,7 @@ import { heldVisit } from "@/lib/scheduling/booking";
 import { loadPublicSchedule } from "@/lib/scheduling/public";
 import { withoutOwnHold } from "@/lib/scheduling/reschedule";
 import { openSlots } from "@/lib/scheduling/rules";
+import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
 export async function requestReschedule(formData: FormData) {
@@ -13,6 +14,7 @@ export async function requestReschedule(formData: FormData) {
   const serviceId = String(formData.get("serviceId") ?? "");
   const startsAt = String(formData.get("startsAt") ?? "");
   const session = await requireSession(`/account/reschedule/${bookingId}`);
+  await redirectIfRateLimited("reschedule", session.user.id, "/account");
   const booking = await session.supabase
     .from("booking_requests")
     .select("id, status, customer_id, provider_id")
@@ -80,6 +82,7 @@ export async function requestReschedule(formData: FormData) {
 
 export async function decideReschedule(formData: FormData) {
   const session = await requireSession("/dashboard");
+  await redirectIfRateLimited("reschedule", session.user.id, "/dashboard");
   const requestId = String(formData.get("requestId") ?? "");
   const approve = formData.get("decision") === "approve";
   const { data, error } = await session.supabase.rpc("decide_reschedule", {
@@ -99,6 +102,7 @@ export async function decideReschedule(formData: FormData) {
 
 export async function cancelReschedule(formData: FormData) {
   const session = await requireSession("/account");
+  await redirectIfRateLimited("reschedule", session.user.id, "/account");
   const requestId = String(formData.get("requestId") ?? "");
   const { error } = await session.supabase
     .from("booking_reschedule_requests")

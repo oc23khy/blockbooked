@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { customerFacingError } from "@/lib/public-error";
 import { safeNextPath } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin),
+      new URL(`/login?error=${encodeURIComponent(customerFacingError(error.message, "The email confirmation could not be completed."))}`, url.origin),
     );
   }
 

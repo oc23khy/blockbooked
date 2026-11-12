@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { categories, isServiceTown, serviceTowns, type ServiceOffering } from "@/lib/marketplace";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
@@ -132,7 +133,7 @@ export async function saveProviderListing(formData: FormData) {
     : session.supabase.from("providers").insert(payload);
 
   const { error } = await query;
-  if (error) redirect(`/dashboard?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/dashboard?error=${encodeURIComponent(customerFacingError(error.message, "The listing could not be saved."))}`);
 
   revalidatePath("/");
   revalidatePath("/dashboard");
@@ -154,7 +155,7 @@ export async function reviewProvider(formData: FormData) {
     .update({ status: decision, review_note: reviewNote || null })
     .eq("id", id);
 
-  if (error) redirect(`/admin/providers?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/admin/providers?error=${encodeURIComponent(customerFacingError(error.message, "The application could not be updated."))}`);
 
   revalidatePath("/");
   revalidatePath("/admin");

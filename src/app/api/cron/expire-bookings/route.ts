@@ -1,4 +1,5 @@
 import { cronAuthorized, expireDueBookings } from "@/lib/bookings/expire";
+import { customerFacingError } from "@/lib/public-error";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -17,10 +18,18 @@ async function run(request: Request) {
     // Expiration and refunds still run when old counters cannot be removed.
   }
   const result = await expireDueBookings();
-  if (result.error && result.expired.length === 0) {
-    return Response.json(result, { status: 500 });
+  const safe = {
+    ...result,
+    error: result.error ? customerFacingError(result.error, "Bookings could not be expired.") : null,
+    refunds: result.refunds.map((refund) => ({
+      ...refund,
+      message: customerFacingError(refund.message, "The expiration refund could not be confirmed."),
+    })),
+  };
+  if (safe.error && safe.expired.length === 0) {
+    return Response.json(safe, { status: 500 });
   }
-  return Response.json(result);
+  return Response.json(safe);
 }
 
 export function GET(request: Request) {

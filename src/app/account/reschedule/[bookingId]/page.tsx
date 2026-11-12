@@ -6,6 +6,7 @@ import { appointmentLabel } from "@/lib/scheduling/booking";
 import { loadPublicSchedule } from "@/lib/scheduling/public";
 import { PRICE_ADJUSTMENT_MESSAGE, withoutOwnHold } from "@/lib/scheduling/reschedule";
 import { openSlots } from "@/lib/scheduling/rules";
+import { shownError } from "@/lib/public-error";
 import { requireSession } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Reschedule · BlockBooked" };
@@ -75,7 +76,7 @@ export default async function ReschedulePage({
       <p className="mt-3 text-ink/70">
         {provider?.business_name ?? "Your provider"} keeps {appointmentLabel(appointment.data.starts_at, timeZone)} reserved until they approve a replacement.
       </p>
-      {query.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+      {shownError(query.error) ? <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error)}</p> : null}
       {schedule?.scheduleError ? <p className="mt-4 text-sm font-medium text-accent-dark">{schedule.scheduleError}</p> : null}
       <div className="mt-6 grid gap-4">
         {services.map((service) => {

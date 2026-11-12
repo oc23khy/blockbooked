@@ -1,4 +1,5 @@
 import type { Provider, ServiceOffering } from "@/lib/marketplace";
+import { customerFacingError } from "@/lib/public-error";
 import { initialsFor, isServiceTown, toneFor } from "@/lib/marketplace";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
@@ -86,11 +87,11 @@ export async function getPublicProviders(): Promise<{ providers: Provider[]; err
       .eq("status", "approved")
       .order("business_name");
 
-    if (error) return { providers: [], error: error.message };
+    if (error) return { providers: [], error: customerFacingError(error.message, "Providers could not be loaded.") };
     return { providers: ((data ?? []) as ProviderRow[]).map(toProvider), error: null };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not reach Supabase.";
-    return { providers: [], error: message };
+    return { providers: [], error: customerFacingError(message, "Providers could not be loaded.") };
   }
 }
 

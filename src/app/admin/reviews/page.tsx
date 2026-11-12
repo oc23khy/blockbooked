@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { payoutLabel } from "@/lib/payments/guards";
 import { formatUsd } from "@/lib/payments/money";
+import { shownError } from "@/lib/public-error";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Manual review · BlockBooked" };
@@ -51,7 +52,7 @@ export default async function AdminReviewsPage() {
         These accepted bookings were flagged because a customer PIN was not used. This queue does not mark a booking
         complete, reveal the PIN, or send a provider transfer.
       </p>
-      {error ? <p className="mt-4 text-sm font-medium text-accent-dark">{error.message}</p> : null}
+      {shownError(error?.message) ? <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(error?.message)}</p> : null}
       <ul className="mt-6 grid gap-4">
         {rows.length === 0 ? (
           <li className="rounded-3xl border border-dashed border-line bg-card px-5 py-8 text-sm text-ink/70">

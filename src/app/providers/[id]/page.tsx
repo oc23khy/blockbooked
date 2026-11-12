@@ -9,6 +9,7 @@ import { categoryName } from "@/lib/marketplace";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { isServiceRoleConfigured } from "@/lib/supabase/admin";
 import { getVisibleProvider, type BookingRow } from "@/lib/providers";
+import { shownError } from "@/lib/public-error";
 import { getSession } from "@/lib/session";
 
 type ProviderPageProps = {
@@ -33,6 +34,7 @@ export async function generateMetadata({ params }: ProviderPageProps): Promise<M
 export default async function ProviderPage({ params, searchParams }: ProviderPageProps) {
   const { id } = await params;
   const query = await searchParams;
+  const formError = shownError(query.error) ?? undefined;
   const provider = await getVisibleProvider(id);
   if (!provider) notFound();
 
@@ -243,7 +245,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
               existing={existing}
               services={provider.services}
               paymentsEnabled={stripeTestKeyConfigured() && isServiceRoleConfigured()}
-              error={surface === "confirm" ? undefined : query.error}
+              error={surface === "confirm" ? undefined : formError}
               notice={surface === "confirm" ? undefined : query.notice}
               appointmentStart={existingAppointment}
               timeZone={schedule?.timeZone ?? "America/Chicago"}
@@ -258,7 +260,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
               startsAt={query.starts ?? ""}
               paymentsEnabled={stripeTestKeyConfigured() && isServiceRoleConfigured()}
               signedIn={Boolean(session)}
-              error={query.error}
+              error={formError}
               notice={query.notice}
             />
           ) : null}
@@ -277,7 +279,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
               existing={existing}
               services={provider.services}
               paymentsEnabled={stripeTestKeyConfigured() && isServiceRoleConfigured()}
-              error={query.error}
+              error={formError}
               notice={query.notice}
             />
           ) : null}

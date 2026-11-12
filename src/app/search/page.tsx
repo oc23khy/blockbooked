@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { categories, categoryName } from "@/lib/marketplace";
 import { getPublicProviders } from "@/lib/providers";
+import { shownError } from "@/lib/public-error";
 import { comparablePrice, parseSearchQuery, providerPricing, searchProviders, searchRadii } from "@/lib/search";
 
 export const metadata: Metadata = {
@@ -109,7 +110,7 @@ export default async function SearchPage({
       {query.minRating != null && query.minRating > 0 && !results.reviewsAvailable ? (
         <p className="mt-4 text-sm text-ink/70">No listing has a verified review yet, so a minimum rating returns no one.</p>
       ) : null}
-      {loaded.error ? <p className="mt-6 text-sm font-medium text-accent-dark">{loaded.error}</p> : null}
+      {shownError(loaded.error) ? <p className="mt-6 text-sm font-medium text-accent-dark">{shownError(loaded.error)}</p> : null}
       <p className="mt-6 text-sm text-ink/60">{results.total} approved {results.total === 1 ? "provider" : "providers"}</p>
       {results.providers.length === 0 ? (
         <p className="mt-4 rounded-3xl border border-dashed border-line bg-card px-5 py-8 text-sm text-ink/70">No approved providers match this search.</p>

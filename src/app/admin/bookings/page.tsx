@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { bookingStatuses } from "@/lib/booking-status";
 import { filterAdminBookings, loadAdminBookings } from "@/lib/admin/records";
 import { payoutLabel } from "@/lib/payments/guards";
+import { shownError } from "@/lib/public-error";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Admin bookings · BlockBooked" };
@@ -25,7 +26,7 @@ export default async function AdminBookingsPage({
       <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/70">
         The latest 200 bookings visible to an administrator. This page does not refund, transfer, or complete a booking.
       </p>
-      {loaded.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{loaded.error}</p> : null}
+      {shownError(loaded.error) ? <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(loaded.error)}</p> : null}
       <form method="get" className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <input
           name="q"

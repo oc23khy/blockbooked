@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { reviewProvider } from "@/app/actions/providers";
 import { categoryName } from "@/lib/marketplace";
 import type { ProviderRow } from "@/lib/providers";
+import { shownError } from "@/lib/public-error";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Admin providers · BlockBooked" };
@@ -29,7 +30,7 @@ export default async function AdminProvidersPage({
         status, so this page does not invent one.
       </p>
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
-      {query.error || error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error || error?.message}</p> : null}
+      {shownError(query.error || error?.message) ? <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error || error?.message)}</p> : null}
       <form method="get" className="mt-6 flex flex-wrap gap-3">
         <input
           name="q"

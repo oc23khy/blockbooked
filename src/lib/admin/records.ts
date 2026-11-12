@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { customerFacingError } from "../public-error.ts";
 
 export type AdminBookingRecord = {
   id: string;
@@ -57,7 +58,7 @@ export async function loadAdminBookings(supabase: SupabaseClient) {
     .select("id, status, service_name, preferred_date, time_window, customer_id, provider_id, created_at")
     .order("created_at", { ascending: false })
     .limit(200);
-  if (bookings.error) return { records: [] as AdminBookingRecord[], error: bookings.error.message };
+  if (bookings.error) return { records: [] as AdminBookingRecord[], error: customerFacingError(bookings.error.message, "Bookings could not be loaded.") };
 
   const rows = (bookings.data ?? []) as BookingRow[];
   const bookingIds = rows.map((row) => row.id);
@@ -78,7 +79,7 @@ export async function loadAdminBookings(supabase: SupabaseClient) {
       : Promise.resolve({ data: [], error: null }),
   ]);
   const error = customers.error?.message || providers.error?.message || appointments.error?.message || payments.error?.message;
-  if (error) return { records: [] as AdminBookingRecord[], error };
+  if (error) return { records: [] as AdminBookingRecord[], error: customerFacingError(error, "Bookings could not be loaded.") };
 
   const customerName = new Map(((customers.data ?? []) as { id: string; full_name: string }[]).map((row) => [row.id, row.full_name]));
   const providerInfo = new Map(

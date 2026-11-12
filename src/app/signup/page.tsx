@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { signUp } from "@/app/actions/auth";
+import { shownError } from "@/lib/public-error";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 export const metadata: Metadata = { title: "Create account · BlockBooked" };
@@ -11,6 +12,7 @@ export default async function SignUpPage({
   searchParams: Promise<{ error?: string; account?: string }>;
 }) {
   const query = await searchParams;
+  const formError = shownError(query.error);
   const providerAccount = query.account === "provider";
 
   return (
@@ -24,7 +26,7 @@ export default async function SignUpPage({
           Supabase is not configured yet, so accounts cannot be created.
         </p>
       ) : null}
-      {query.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+      {formError ? <p className="mt-4 text-sm font-medium text-accent-dark">{formError}</p> : null}
       <form action={signUp} className="mt-6 grid gap-3 rounded-3xl border border-line bg-card p-6">
         <fieldset className="grid gap-2 text-sm">
           <legend className="font-medium text-ink">Account type</legend>

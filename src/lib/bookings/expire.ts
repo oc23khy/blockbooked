@@ -1,3 +1,4 @@
+import { customerFacingError } from "@/lib/public-error";
 import { requestRefund } from "@/lib/payments/service";
 import { expirationRpcBookingId } from "@/lib/scheduling/expiration";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
@@ -14,7 +15,10 @@ export async function refundExpiredBooking(bookingId: string) {
   try {
     return await refundExpiredBookingOnce(bookingId);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The expiration refund could not be started.";
+    const message = customerFacingError(
+      error instanceof Error ? error.message : "The expiration refund could not be started.",
+      "The expiration refund could not be started.",
+    );
     await createAdminClient()
       .from("booking_requests")
       .update({ expiration_refund_error: message.slice(0, 500) })
@@ -51,7 +55,9 @@ async function refundExpiredBookingOnce(bookingId: string) {
       reason: "acceptance_expired",
       automatic: true,
     });
-    if (!refund.ok && refund.message !== "There is no confirmed Stripe payment to refund.") failure = refund.message;
+    if (!refund.ok && refund.message !== "There is no confirmed Stripe payment to refund.") {
+      failure = customerFacingError(refund.message, "The expiration refund could not be confirmed.");
+    }
   }
   await admin
     .from("booking_requests")
@@ -82,7 +88,7 @@ export async function expireDueBookings() {
   // refund even when expiration_refund_error was never written.
   const outstanding = await admin.rpc("bookings_needing_expiration_refund", { batch_limit: 25 });
   if (outstanding.error) {
-    return { expired, refunds, error: outstanding.error.message };
+    return { expired, refunds, error: customerFacingError(outstanding.error.message, "Expired bookings could not be checked.") };
   }
   for (const row of (outstanding.data ?? []) as { booking_id?: string | null; expired_booking_id?: string | null }[]) {
     const bookingId = expirationRpcBookingId(row);
@@ -91,5 +97,5 @@ export async function expireDueBookings() {
     const refund = await refundExpiredBooking(bookingId);
     if (refund.attempted || !refund.ok) refunds.push({ bookingId, ok: refund.ok, message: refund.message });
   }
-  return { expired, refunds, error: claimed.error?.message ?? null };
+  return { expired, refunds, error: claimed.error ? customerFacingError(claimed.error.message, "Expired bookings could not be checked.") : null };
 }

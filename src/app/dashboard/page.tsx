@@ -8,6 +8,7 @@ import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { isServiceRoleConfigured } from "@/lib/supabase/admin";
 import type { ProviderRow } from "@/lib/providers";
 import { displayedDeadline } from "@/lib/scheduling/expiration";
+import { shownError } from "@/lib/public-error";
 import { requireSession } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Provider dashboard · BlockBooked" };
@@ -56,7 +57,7 @@ export default async function DashboardPage({
     try {
       liveStripe = await refreshConnectedAccount(listing.id);
     } catch (error) {
-      liveStripeError = error instanceof Error ? error.message : "Stripe account status could not be loaded.";
+      liveStripeError = shownError(error instanceof Error ? error.message : "Stripe account status could not be loaded.", "Stripe account status could not be loaded.");
     }
   }
 
@@ -158,7 +159,7 @@ export default async function DashboardPage({
         supabase.from("provider_images").select("storage_path, caption").eq("provider_id", listing.id).order("sort_order"),
       ])
     : null;
-  const scheduleError = schedule?.find((result) => result.error)?.error?.message ?? null;
+  const scheduleError = shownError(schedule?.find((result) => result.error)?.error?.message, "The schedule could not be loaded.");
   const history = ((requestRows ?? []) as ProviderBooking[]).map((request) => {
     const customer = Array.isArray(request.profiles) ? request.profiles[0] : request.profiles;
     return {
@@ -200,6 +201,7 @@ export default async function DashboardPage({
   );
   const earlier = history.filter((booking) => !upcoming.some((item) => item.id === booking.id));
 
+  const formError = shownError(query.error);
   return (
     <main className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.15fr_0.85fr]">
       <section>
@@ -222,7 +224,7 @@ export default async function DashboardPage({
           </p>
         ) : null}
         {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
-        {query.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+        {formError ? <p className="mt-4 text-sm font-medium text-accent-dark">{formError}</p> : null}
         <div className="mt-6 rounded-3xl border border-line bg-card p-5">
           <h2 className="font-serif text-2xl text-ink">Stripe payouts</h2>
           <p className="mt-2 text-sm leading-6 text-ink/70">
@@ -230,7 +232,7 @@ export default async function DashboardPage({
             and your share is transferred after the service is verified. Stripe test mode does not send real payouts.
           </p>
           {stripeAccount.error || liveStripeError ? (
-            <p className="mt-3 text-sm font-medium text-accent-dark">{liveStripeError ?? stripeAccount.error?.message}</p>
+            <p className="mt-3 text-sm font-medium text-accent-dark">{liveStripeError ?? shownError(stripeAccount.error?.message, "Stripe account status could not be loaded.")}</p>
           ) : (
             <p className="mt-3 text-sm text-ink">
               {liveStripe?.readyToReceivePayments

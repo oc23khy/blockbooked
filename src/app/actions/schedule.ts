@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { parseCatalogSubmission, type CatalogFormState } from "@/lib/scheduling/catalog";
 import { localInstants } from "@/lib/scheduling/rules";
+import { detectProviderImage, MAX_PROVIDER_IMAGE_BYTES } from "@/lib/images/sniff";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
@@ -28,7 +30,7 @@ function minutes(value: string) {
 }
 
 function back(error: string): never {
-  redirect(`/dashboard?error=${encodeURIComponent(error)}`);
+  redirect(`/dashboard?error=${encodeURIComponent(customerFacingError(error, "That change could not be saved."))}`);
 }
 
 export async function saveScheduleSettings(formData: FormData) {
@@ -88,7 +90,11 @@ export async function saveBusinessHours(formData: FormData) {
 
 export async function saveCatalogServices(previous: CatalogFormState, formData: FormData): Promise<CatalogFormState> {
   const parsed = parseCatalogSubmission(formData);
-  const failed = (error: string): CatalogFormState => ({ error, drafts: parsed.drafts, attempt: previous.attempt + 1 });
+  const failed = (error: string): CatalogFormState => ({
+    error: customerFacingError(error, "That service could not be saved."),
+    drafts: parsed.drafts,
+    attempt: previous.attempt + 1,
+  });
   if (parsed.error) return failed(parsed.error);
 
   const { session, providerId } = await ownedProvider();
@@ -194,12 +200,13 @@ export async function uploadProviderImage(formData: FormData) {
   const { session, providerId } = await ownedProvider("providerImage");
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) back("Choose an image.");
-  if (file.size > 5_000_000) back("Images must be 5 MB or smaller.");
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.type === "image/jpeg" ? "jpg" : "";
-  if (!extension) back("Use a JPEG, PNG, or WebP image.");
-  const path = `${providerId}/${crypto.randomUUID()}.${extension}`;
-  const uploaded = await session.supabase.storage.from("provider-media").upload(path, new Uint8Array(await file.arrayBuffer()), {
-    contentType: file.type,
+  if (file.size > MAX_PROVIDER_IMAGE_BYTES) back("Images must be 5 MB or smaller.");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const image = detectProviderImage(bytes);
+  if (!image) back("Use a JPEG, PNG, or WebP image.");
+  const path = `${providerId}/${crypto.randomUUID()}.${image.extension}`;
+  const uploaded = await session.supabase.storage.from("provider-media").upload(path, bytes, {
+    contentType: image.mime,
     upsert: false,
   });
   if (uploaded.error) back(uploaded.error.message);

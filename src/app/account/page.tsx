@@ -3,6 +3,7 @@ import Link from "next/link";
 import { updateProfile } from "@/app/actions/auth";
 import { BookingCard, type BookingView } from "@/components/booking-card";
 import { accountPaymentNotice } from "@/lib/payments/account-notice";
+import { shownError } from "@/lib/public-error";
 import { displayedDeadline } from "@/lib/scheduling/expiration";
 import { requireSession } from "@/lib/session";
 
@@ -209,7 +210,7 @@ export default async function AccountPage({
             {accountPaymentNotice({ notice: query.notice, checkout: query.checkout, bookings: history })}
           </p>
         ) : null}
-        {query.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+        {shownError(query.error) ? <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error)}</p> : null}
         <form action={updateProfile} className="mt-6 grid gap-3 rounded-3xl border border-line bg-card p-6">
           <label className="block text-sm font-medium text-ink">
             Full name

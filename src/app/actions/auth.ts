@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { siteUrl } from "@/lib/payments/stripe-server";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfIpRateLimited, redirectIfRateLimited } from "@/lib/rate-limit";
 import { safeNextPath } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
@@ -21,7 +22,7 @@ export async function signIn(formData: FormData) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}&next=${encodeURIComponent(next)}`);
+    redirect(`/login?error=${encodeURIComponent(customerFacingError(error.message, "The email or password was not accepted."))}&next=${encodeURIComponent(next)}`);
   }
 
   redirect(next);
@@ -52,7 +53,7 @@ export async function signUp(formData: FormData) {
     },
   });
 
-  if (error) redirect(`/signup?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/signup?error=${encodeURIComponent(customerFacingError(error.message, "The account could not be created."))}`);
   if (!data.session) {
     redirect(`/login?notice=${encodeURIComponent("Confirm your email, then log in.")}`);
   }
@@ -84,7 +85,7 @@ export async function updateProfile(formData: FormData) {
     .update({ full_name: fullName, phone })
     .eq("id", user.id);
 
-  if (error) redirect(`/account?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/account?error=${encodeURIComponent(customerFacingError(error.message, "The profile could not be saved."))}`);
   redirect("/account?notice=Profile%20saved");
 }
 
@@ -97,6 +98,6 @@ export async function becomeProvider() {
   if (!user) redirect("/login?next=/list-your-business");
   await redirectIfRateLimited("becomeProvider", user.id, "/list-your-business");
   const { error } = await supabase.rpc("become_provider");
-  if (error) redirect(`/list-your-business?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/list-your-business?error=${encodeURIComponent(customerFacingError(error.message, "The provider account could not be created."))}`);
   redirect("/dashboard");
 }

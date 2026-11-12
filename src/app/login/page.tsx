@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { signIn } from "@/app/actions/auth";
+import { shownError } from "@/lib/public-error";
 import { safeNextPath } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
@@ -12,6 +13,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string; notice?: string; next?: string }>;
 }) {
   const query = await searchParams;
+  const formError = shownError(query.error);
   const next = safeNextPath(query.next);
   const configured = isSupabaseConfigured();
 
@@ -26,7 +28,7 @@ export default async function LoginPage({
         </p>
       ) : null}
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
-      {query.error ? <p className="mt-4 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+      {formError ? <p className="mt-4 text-sm font-medium text-accent-dark">{formError}</p> : null}
       <form action={signIn} className="mt-6 grid gap-3 rounded-3xl border border-line bg-card p-6">
         <input type="hidden" name="next" value={next} />
         <label className="block text-sm font-medium text-ink">

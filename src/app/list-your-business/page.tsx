@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { becomeProvider } from "@/app/actions/auth";
 import { serviceAreaSummary } from "@/lib/marketplace";
+import { shownError } from "@/lib/public-error";
 import { getSession } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { redirect } from "next/navigation";
@@ -18,6 +19,7 @@ export default async function ListYourBusinessPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const query = await searchParams;
+  const formError = shownError(query.error);
   const session = await getSession();
   if (session?.profile.role === "provider" || session?.profile.role === "admin") {
     redirect("/dashboard");
@@ -62,7 +64,7 @@ export default async function ListYourBusinessPage({
               You are logged in as a customer. Switch this account to a provider account to apply.
               This does not make you an admin.
             </p>
-            {query.error ? <p className="mt-3 text-sm font-medium text-accent-dark">{query.error}</p> : null}
+            {formError ? <p className="mt-3 text-sm font-medium text-accent-dark">{formError}</p> : null}
             <form action={becomeProvider}>
               <button
                 type="submit"

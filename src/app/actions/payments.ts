@@ -13,6 +13,7 @@ import {
 } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { isServiceRoleConfigured } from "@/lib/supabase/admin";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
@@ -48,7 +49,7 @@ export async function payForBooking(formData: FormData) {
     if (error instanceof Error && error.message === "unauthorized") {
       redirect("/account?error=You%20cannot%20pay%20for%20that%20booking.");
     }
-    throw error;
+    redirect("/account?error=The%20payment%20could%20not%20be%20started.");
   }
   if (!url) redirect("/account?notice=This%20booking%20is%20already%20paid.");
   redirect(url);
@@ -77,7 +78,8 @@ export async function sendQuote(formData: FormData) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The quote could not be saved.";
-    redirect(`/dashboard?error=${encodeURIComponent(message === "unauthorized" ? "You cannot quote this booking." : message)}`);
+    const safe = message === "unauthorized" ? "You cannot quote this booking." : customerFacingError(message, "The quote could not be saved.");
+    redirect(`/dashboard?error=${encodeURIComponent(safe)}`);
   }
   revalidatePath("/dashboard");
   revalidatePath("/account");
@@ -98,7 +100,8 @@ export async function saveMilestones(formData: FormData) {
     await proposeMilestones({ bookingId, providerOwnerId: session.user.id, parts });
   } catch (error) {
     const message = error instanceof Error ? error.message : "The milestones could not be saved.";
-    redirect(`/dashboard?error=${encodeURIComponent(message === "unauthorized" ? "You cannot edit this booking." : message)}`);
+    const safe = message === "unauthorized" ? "You cannot edit this booking." : customerFacingError(message, "The milestones could not be saved.");
+    redirect(`/dashboard?error=${encodeURIComponent(safe)}`);
   }
   revalidatePath("/dashboard");
   revalidatePath("/account");

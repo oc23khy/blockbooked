@@ -17,6 +17,7 @@ import { quoteFromCatalog } from "@/lib/payments/money";
 import { releaseProviderTransfer, requestRefund, startCheckout } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfRateLimited, reserveBookingRateLimit } from "@/lib/rate-limit";
 import { requireSession, safeNextPath } from "@/lib/session";
 
@@ -58,7 +59,7 @@ export async function createBooking(formData: FormData) {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Choose one of the open appointment times.";
-      redirect(`${returnPath}?error=${encodeURIComponent(message)}`);
+      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(message, "Choose one of the open appointment times."))}`);
     }
   }
 
@@ -89,7 +90,7 @@ export async function createBooking(formData: FormData) {
       amountCents = quoteFromCatalog(catalogPrice);
     } catch (error) {
       const message = error instanceof Error ? error.message : "This service does not have a fixed dollar price.";
-      redirect(`${returnPath}?error=${encodeURIComponent(message)}`);
+      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(message, "This service does not have a fixed dollar price."))}`);
     }
   }
 
@@ -112,7 +113,7 @@ export async function createBooking(formData: FormData) {
     .single();
 
   if (inserted.error || !inserted.data) {
-    redirect(`${returnPath}?error=${encodeURIComponent(inserted.error?.message ?? "The booking could not be saved.")}`);
+    redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(inserted.error?.message, "The booking could not be saved."))}`);
   }
 
   if (scheduledService && startsAtRaw) {
@@ -130,7 +131,7 @@ export async function createBooking(formData: FormData) {
         .update({ status: "cancelled" })
         .eq("id", inserted.data.id)
         .eq("customer_id", session.user.id);
-      redirect(`${returnPath}?error=${encodeURIComponent(reserved.error.message)}`);
+      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(reserved.error.message, "That appointment time is no longer open."))}`);
     }
   }
 
@@ -165,7 +166,8 @@ export async function createBooking(formData: FormData) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Checkout could not be started.";
-    redirect(`/account?error=${encodeURIComponent(`${message} You can pay or cancel the request from your account.`)}`);
+    const safe = customerFacingError(message, "Checkout could not be started.");
+    redirect(`/account?error=${encodeURIComponent(`${safe} You can pay or cancel the request from your account.`)}`);
   }
   redirect(checkoutUrl);
 }
@@ -238,7 +240,7 @@ export async function updateBookingStatus(formData: FormData) {
     .select("status")
     .maybeSingle();
 
-  if (updated.error) redirect(`${returnTo}?error=${encodeURIComponent(updated.error.message)}`);
+  if (updated.error) redirect(`${returnTo}?error=${encodeURIComponent(customerFacingError(updated.error.message, "That booking could not be updated."))}`);
   if (updated.data?.status !== nextStatus) {
     redirect(`${returnTo}?error=${encodeURIComponent("That booking changed before this update was saved. Refresh and check its status.")}`);
   }
@@ -262,7 +264,7 @@ export async function updateBookingStatus(formData: FormData) {
         automatic: true,
       });
       if (!refund.ok && refund.message !== "There is no confirmed Stripe payment to refund.") {
-        redirect(`${returnTo}?error=${encodeURIComponent(`The booking was updated, but the refund was not confirmed. ${refund.message}`)}`);
+        redirect(`${returnTo}?error=${encodeURIComponent(`The booking was updated, but the refund was not confirmed. ${customerFacingError(refund.message, "Try again from your account.")}`)}`);
       }
       if (refund.ok && refund.stripeStatus !== "succeeded") {
         redirect(`${returnTo}?notice=${encodeURIComponent("Booking updated. Stripe has not confirmed the refund yet.")}`);

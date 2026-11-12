@@ -10,6 +10,7 @@ import {
   type AdminRefundSnapshot,
 } from "@/lib/admin/summary";
 import { formatUsd } from "@/lib/payments/money";
+import { shownError } from "@/lib/public-error";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Admin overview · BlockBooked" };
@@ -162,8 +163,8 @@ export default async function AdminOverviewPage({
         confirmed. A refund of a provider share that was never transferred is not a reversal.
       </p>
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
-      {query.error || countError || moneyError ? (
-        <p className="mt-4 text-sm font-medium text-accent-dark">{query.error || countError || moneyError}</p>
+      {shownError(query.error || countError || moneyError) ? (
+        <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error || countError || moneyError)}</p>
       ) : null}
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {figures.map(([label, value]) => (

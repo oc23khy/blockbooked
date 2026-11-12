@@ -1,3 +1,4 @@
+import { customerFacingError } from "@/lib/public-error";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseEnv } from "@/lib/supabase/env";
 import { openSlots, type BusinessWindow, type TimeRange } from "./rules.ts";
@@ -51,8 +52,9 @@ export async function loadPublicSchedule(providerId: string): Promise<ScheduleVi
   ]);
 
   if (provider.error || !provider.data) return null;
-  const scheduleError =
+  const rawScheduleError =
     services.error?.message || hours.error?.message || settings.error?.message || busy.error?.message || timeOff.error?.message || null;
+  const scheduleError = rawScheduleError ? customerFacingError(rawScheduleError, "Open appointment times could not be loaded.") : null;
   const windows = ((hours.error ? [] : hours.data) ?? []).map((window) => ({
     weekday: window.weekday,
     opensMinute: window.opens_minute,

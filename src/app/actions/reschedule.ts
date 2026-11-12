@@ -6,6 +6,7 @@ import { heldVisit } from "@/lib/scheduling/booking";
 import { loadPublicSchedule } from "@/lib/scheduling/public";
 import { withoutOwnHold } from "@/lib/scheduling/reschedule";
 import { openSlots } from "@/lib/scheduling/rules";
+import { customerFacingError } from "@/lib/public-error";
 import { redirectIfRateLimited } from "@/lib/rate-limit";
 import { requireSession } from "@/lib/session";
 
@@ -62,7 +63,7 @@ export async function requestReschedule(formData: FormData) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Choose one of the open appointment times.";
-    redirect(`/account/reschedule/${bookingId}?error=${encodeURIComponent(message)}`);
+    redirect(`/account/reschedule/${bookingId}?error=${encodeURIComponent(customerFacingError(message, "Choose one of the open appointment times."))}`);
   }
   const saved = await session.supabase.from("booking_reschedule_requests").insert({
     booking_id: bookingId,
@@ -73,7 +74,7 @@ export async function requestReschedule(formData: FormData) {
     original_starts_at: appointment.data.starts_at,
   });
   if (saved.error) {
-    redirect(`/account/reschedule/${bookingId}?error=${encodeURIComponent(saved.error.message)}`);
+    redirect(`/account/reschedule/${bookingId}?error=${encodeURIComponent(customerFacingError(saved.error.message, "The reschedule request could not be saved."))}`);
   }
   revalidatePath("/account");
   revalidatePath("/dashboard");
@@ -91,7 +92,7 @@ export async function decideReschedule(formData: FormData) {
   });
   revalidatePath("/account");
   revalidatePath("/dashboard");
-  if (error) redirect(`/dashboard?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/dashboard?error=${encodeURIComponent(customerFacingError(error.message, "The reschedule could not be decided."))}`);
   if (data === "approved") redirect("/dashboard?notice=The%20new%20appointment%20time%20is%20reserved.%20The%20original%20payment%20was%20not%20changed.");
   if (data === "declined") redirect("/dashboard?notice=Reschedule%20request%20declined.%20The%20original%20time%20is%20unchanged.");
   if (data === "conflict" || data === "rejected" || data === "unavailable") {
@@ -112,6 +113,6 @@ export async function cancelReschedule(formData: FormData) {
     .eq("status", "pending");
   revalidatePath("/account");
   revalidatePath("/dashboard");
-  if (error) redirect(`/account?error=${encodeURIComponent(error.message)}`);
+  if (error) redirect(`/account?error=${encodeURIComponent(customerFacingError(error.message, "The reschedule request could not be cancelled."))}`);
   redirect("/account?notice=Reschedule%20request%20cancelled.%20The%20original%20appointment%20is%20unchanged.");
 }

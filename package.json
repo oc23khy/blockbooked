@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test tests/payments.test.ts tests/search.test.ts tests/scheduling.test.ts tests/booking-flow.test.ts tests/expiration.test.ts tests/admin.test.ts"
+    "test": "node --experimental-strip-types --test tests/payments.test.ts tests/search.test.ts tests/scheduling.test.ts tests/booking-flow.test.ts tests/expiration.test.ts tests/admin.test.ts tests/acceptance-payment.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

@@ -9,6 +9,7 @@ import {
   bookingStatuses,
   canChangeBookingStatus,
   normalizeBookingStatus,
+  paidAcceptanceAllowed,
   pinAttemptMessage,
   type BookingStatus,
 } from "@/lib/booking-status";
@@ -201,9 +202,23 @@ export async function updateBookingStatus(formData: FormData) {
   }
 
   if (nextStatus === "accepted") {
-    const payment = await session.supabase.from("payments").select("status").eq("booking_id", bookingId);
-    const rows = payment.error ? [] : (payment.data ?? []);
-    if (rows.length > 0 && !rows.some((row) => row.status === "succeeded" || row.status === "partially_refunded")) {
+    const payment = await session.supabase
+      .from("payments")
+      .select("status, amount_cents, refunded_cents")
+      .eq("booking_id", bookingId);
+    const rows = payment.error
+      ? []
+      : ((payment.data ?? []) as { status: string; amount_cents: number; refunded_cents: number }[]);
+    if (
+      payment.error ||
+      !paidAcceptanceAllowed(
+        rows.map((row) => ({
+          status: row.status,
+          amountCents: row.amount_cents,
+          refundedCents: row.refunded_cents,
+        })),
+      )
+    ) {
       redirect(`${returnTo}?error=${encodeURIComponent("Wait until Stripe confirms the customer's payment before accepting.")}`);
     }
   }

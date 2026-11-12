@@ -17,6 +17,10 @@ export function customerCanCancel(status: string) {
   return normalizeBookingStatus(status) === "pending";
 }
 
+export function acceptanceTransitionAllowed(currentStatus: string) {
+  return currentStatus === "pending" || currentStatus === "requested";
+}
+
 export function providerActions(status: string): Array<"accepted" | "declined"> {
   const normalized = normalizeBookingStatus(status);
   if (normalized === "pending") return ["accepted", "declined"];
@@ -27,6 +31,21 @@ export function providerCanVerifyPin(status: string) {
   return normalizeBookingStatus(status) === "accepted";
 }
 
+const confirmedPaymentStatuses = new Set(["succeeded", "partially_refunded"]);
+
+export function paidAcceptanceAllowed(
+  payments: { status: string; amountCents: number; refundedCents: number }[],
+) {
+  return payments.some(
+    (payment) =>
+      confirmedPaymentStatuses.has(payment.status) &&
+      Number.isInteger(payment.amountCents) &&
+      Number.isInteger(payment.refundedCents) &&
+      payment.refundedCents >= 0 &&
+      payment.refundedCents < payment.amountCents,
+  );
+}
+
 export function canChangeBookingStatus(input: {
   isCustomer: boolean;
   isProvider: boolean;
@@ -35,6 +54,7 @@ export function canChangeBookingStatus(input: {
 }) {
   if (!bookingStatuses.includes(input.nextStatus as BookingStatus)) return false;
   if (input.nextStatus === "completed" || input.nextStatus === "expired") return false;
+  if (input.nextStatus === "accepted" && !acceptanceTransitionAllowed(input.currentStatus)) return false;
   const current = normalizeBookingStatus(input.currentStatus);
   if (input.isCustomer && input.nextStatus === "cancelled" && customerCanCancel(current)) return true;
   return input.isProvider && providerActions(current).some((action) => action === input.nextStatus);

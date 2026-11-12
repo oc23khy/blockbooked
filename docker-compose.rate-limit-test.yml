@@ -1,0 +1,21 @@
+# Disposable rate-limit test database. It is published only on localhost.
+# It does not use production Supabase credentials.
+# Start: docker compose -f docker-compose.rate-limit-test.yml up -d
+# Stop and discard data: docker compose -f docker-compose.rate-limit-test.yml down
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: blockbooked_local_test
+      POSTGRES_DB: blockbooked_rate_limit_test
+    ports:
+      - "127.0.0.1:54329:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d blockbooked_rate_limit_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20

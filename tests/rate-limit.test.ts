@@ -124,7 +124,7 @@ describe("rate limit enforcement", () => {
     assert.match(migration, /return 'rate_limited'/);
     assert.match(migration, /blockbooked\.pin_verified/);
     assert.match(migration, /issue_booking_rate_receipt/);
-    assert.match(migration, /receipt_row\.actor = actor/);
+    assert.match(migration, /receipt_row\.actor = booking_actor/);
     assert.match(migration, /interval '2 days'/);
     assert.match(migration, /purge_stale_rate_limits/);
     assert.match(migration, /update of status/);

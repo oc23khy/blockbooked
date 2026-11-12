@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { signOut } from "@/app/actions/auth";
+import { calendarNavHref } from "@/lib/calendar";
 
 const links = [
   { href: "/#categories", label: "Services" },
@@ -16,6 +18,9 @@ export function SiteHeader({
   user: { name: string; role: "customer" | "provider" | "admin" } | null;
 }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const calendarHref = user ? calendarNavHref(user.role) : null;
+  const calendarActive = calendarHref ? pathname === calendarHref || pathname.startsWith(`${calendarHref}/`) : false;
 
   return (
     <header className="sticky top-0 z-20 border-b border-line/80 bg-[#f7f4ee]/90 backdrop-blur-md">
@@ -46,6 +51,16 @@ export function SiteHeader({
           {user?.role === "admin" ? (
             <Link href="/admin" className="hover:text-ink">
               Admin
+            </Link>
+          ) : null}
+          {calendarHref ? (
+            <Link
+              href={calendarHref}
+              aria-current={calendarActive ? "page" : undefined}
+              className={`inline-flex items-center gap-1.5 ${calendarActive ? "font-semibold text-ink underline decoration-2 underline-offset-4" : "hover:text-ink"}`}
+            >
+              <CalendarIcon />
+              Calendar
             </Link>
           ) : null}
         </nav>
@@ -119,6 +134,17 @@ export function SiteHeader({
                 Admin
               </Link>
             ) : null}
+            {calendarHref ? (
+              <Link
+                href={calendarHref}
+                aria-current={calendarActive ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium ${calendarActive ? "bg-sand font-semibold text-ink" : "text-ink"}`}
+                onClick={() => setOpen(false)}
+              >
+                <CalendarIcon />
+                Calendar
+              </Link>
+            ) : null}
             {user ? (
               <form action={signOut}>
                 <button type="submit" className="rounded-lg px-2 py-2 text-left text-sm font-medium text-ink">
@@ -144,5 +170,14 @@ export function SiteHeader({
         </nav>
       ) : null}
     </header>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M2 6.5h12M5 2v2.5M11 2v2.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
   );
 }

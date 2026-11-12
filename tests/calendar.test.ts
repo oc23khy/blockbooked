@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   appointmentDetailPath,
   appointmentMessagePath,
+  calendarNavHref,
   calendarScope,
   calendarStatusClass,
   durationMinutes,
@@ -21,6 +22,7 @@ import {
 import { localInstants } from "../src/lib/scheduling/rules.ts";
 
 const board = readFileSync(new URL("../src/components/calendar-board.tsx", import.meta.url), "utf8");
+const siteHeader = readFileSync(new URL("../src/components/site-header.tsx", import.meta.url), "utf8");
 const customerCalendar = readFileSync(new URL("../src/components/customer-calendar.tsx", import.meta.url), "utf8");
 const bookingCard = readFileSync(new URL("../src/components/booking-card.tsx", import.meta.url), "utf8");
 
@@ -248,6 +250,18 @@ describe("calendar navigation", () => {
   it("uses the browser time zone for customer navigation", () => {
     assert.match(customerCalendar, /resolvedOptions\(\)\.timeZone/);
     assert.doesNotMatch(customerCalendar, /America\/Chicago/);
+  });
+
+  it("puts Calendar in the top navigation for the signed-in role", () => {
+    assert.equal(calendarNavHref("customer"), "/account/calendar");
+    assert.equal(calendarNavHref("provider"), "/dashboard/calendar");
+    assert.equal(calendarNavHref("admin"), "/dashboard/calendar");
+    assert.equal(siteHeader.match(/\n\s*Calendar\n/g)?.length, 2);
+    assert.match(siteHeader, /calendarNavHref\(user\.role\)/);
+    assert.match(siteHeader, /aria-current=\{calendarActive \? "page" : undefined\}/);
+    assert.match(siteHeader, /<svg viewBox="0 0 16 16"/);
+    assert.match(siteHeader, /id="mobile-nav"/);
+    assert.match(siteHeader, /className="hidden items-center gap-6/);
   });
 
   it("stacks the week on a narrow screen and labels the controls", () => {

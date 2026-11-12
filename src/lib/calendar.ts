@@ -183,6 +183,10 @@ export function calendarStatusClass(status: string) {
   return statusClass[normalizeBookingStatus(status)] ?? statusClass.pending;
 }
 
+export function calendarNavHref(role: "customer" | "provider" | "admin") {
+  return role === "customer" ? "/account/calendar" : "/dashboard/calendar";
+}
+
 export function calendarScope(input: {
   audience: "customer" | "provider";
   sessionUserId: string;

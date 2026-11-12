@@ -8,6 +8,7 @@ const links = [
   { href: "/admin/bookings", label: "Bookings" },
   { href: "/admin/providers", label: "Providers" },
   { href: "/admin/reviews", label: "Manual review" },
+  { href: "/admin/outreach", label: "Outreach" },
 ];
 
 export function AdminNav() {

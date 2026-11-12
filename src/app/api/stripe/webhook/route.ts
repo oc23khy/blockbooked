@@ -1,4 +1,5 @@
 import { refundExpiredBooking } from "@/lib/bookings/expire";
+import { notifyPersistedStripeEvent } from "@/lib/notifications/dispatch";
 import { isAccountRequirementsEvent } from "@/lib/payments/connect";
 import { applyStripeEvent } from "@/lib/payments/events";
 import { refreshConnectedAccountByStripeId, settleRefundFromStripe } from "@/lib/payments/service";
@@ -69,6 +70,13 @@ export async function POST(request: Request) {
     createPaymentStore(),
   );
   if (result.status === "failed") return Response.json({ received: false }, { status: 500 });
+
+  await notifyPersistedStripeEvent({
+    deliveryStatus: result.status,
+    type: event.type,
+    livemode: event.livemode,
+    object,
+  });
 
   const metadata = object.metadata;
   const bookingId =

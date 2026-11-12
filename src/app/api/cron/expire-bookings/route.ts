@@ -1,4 +1,5 @@
 import { cronAuthorized, expireDueBookings } from "@/lib/bookings/expire";
+import { retryDueNotifications } from "@/lib/notifications/dispatch";
 import { customerFacingError } from "@/lib/public-error";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -18,6 +19,12 @@ async function run(request: Request) {
     // Expiration and refunds still run when old counters cannot be removed.
   }
   const result = await expireDueBookings();
+  let notifications = { checked: 0, sent: 0, failed: 0, skipped: 0 };
+  try {
+    notifications = await retryDueNotifications();
+  } catch {
+    // Expiration stays recorded when a queued email cannot be retried.
+  }
   const safe = {
     ...result,
     error: result.error ? customerFacingError(result.error, "Bookings could not be expired.") : null,
@@ -25,6 +32,7 @@ async function run(request: Request) {
       ...refund,
       message: customerFacingError(refund.message, "The expiration refund could not be confirmed."),
     })),
+    notifications,
   };
   if (safe.error && safe.expired.length === 0) {
     return Response.json(safe, { status: 500 });

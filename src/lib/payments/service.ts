@@ -25,6 +25,7 @@ import {
   platformCheckoutIntent,
 } from "@/lib/payments/connect";
 import { getStripe, siteUrl, stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
+import { notifyRefundIssued } from "@/lib/notifications/dispatch";
 
 type PaymentRow = {
   id: string;
@@ -638,11 +639,14 @@ async function submitRefund(input: {
         refundCents: input.refundCents,
         amountCents: input.payment.amount_cents,
       });
-      await admin
+      const savedPayment = await admin
         .from("payments")
         .update({ refunded_cents: settlement.refundedCents, status: settlement.paymentStatus })
         .eq("id", input.payment.id)
-        .eq("refunded_cents", input.payment.refunded_cents);
+        .eq("refunded_cents", input.payment.refunded_cents)
+        .select("id")
+        .maybeSingle();
+      if (savedPayment.data) await notifyRefundIssued(input.bookingId, input.payment.id);
       await settleReversal({
         refundRowId: input.refundId,
         payment: input.payment,

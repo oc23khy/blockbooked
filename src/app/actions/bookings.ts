@@ -13,6 +13,7 @@ import {
   pinAttemptMessage,
   type BookingStatus,
 } from "@/lib/booking-status";
+import { notifyBookingEvent } from "@/lib/notifications/dispatch";
 import { quoteFromCatalog } from "@/lib/payments/money";
 import { releaseProviderTransfer, requestRefund, startCheckout } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
@@ -135,6 +136,8 @@ export async function createBooking(formData: FormData) {
     }
   }
 
+  await notifyBookingEvent("booking_requested", inserted.data.id);
+
   revalidatePath(returnPath);
   revalidatePath("/account");
   revalidatePath("/dashboard");
@@ -245,6 +248,9 @@ export async function updateBookingStatus(formData: FormData) {
     redirect(`${returnTo}?error=${encodeURIComponent("That booking changed before this update was saved. Refresh and check its status.")}`);
   }
 
+  if (nextStatus === "accepted") await notifyBookingEvent("booking_accepted", bookingId);
+  if (nextStatus === "cancelled") await notifyBookingEvent("booking_cancelled", bookingId);
+
   revalidatePath("/account");
   revalidatePath("/dashboard");
   revalidatePath(`/providers/${booking.provider_id}`);
@@ -296,6 +302,7 @@ export async function submitCompletionPin(formData: FormData) {
 
   if (error) redirect(`/dashboard?error=${encodeURIComponent("The PIN could not be checked.")}`);
   if (data === "completed") {
+    await notifyBookingEvent("booking_completed", bookingId);
     await releaseProviderTransfer(bookingId);
     redirect("/dashboard?notice=Booking%20completed");
   }

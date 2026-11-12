@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { parseCatalogSubmission, type CatalogFormState } from "@/lib/scheduling/catalog";
 import { localInstants } from "@/lib/scheduling/rules";
 import { detectProviderImage, MAX_PROVIDER_IMAGE_BYTES } from "@/lib/images/sniff";
@@ -197,31 +197,37 @@ export async function removeTimeOff(formData: FormData) {
 }
 
 export async function uploadProviderImage(formData: FormData) {
-  const { session, providerId } = await ownedProvider("providerImage");
-  const file = formData.get("image");
-  if (!(file instanceof File) || file.size === 0) back("Choose an image.");
-  if (file.size > MAX_PROVIDER_IMAGE_BYTES) back("Images must be 5 MB or smaller.");
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const image = detectProviderImage(bytes);
-  if (!image) back("Use a JPEG, PNG, or WebP image.");
-  const path = `${providerId}/${crypto.randomUUID()}.${image.extension}`;
-  const uploaded = await session.supabase.storage.from("provider-media").upload(path, bytes, {
-    contentType: image.mime,
-    upsert: false,
-  });
-  if (uploaded.error) back(uploaded.error.message);
-  const saved = await session.supabase.from("provider_images").insert({
-    provider_id: providerId,
-    storage_path: path,
-    caption: String(formData.get("caption") ?? "").trim().slice(0, 120),
-    sort_order: 0,
-  });
-  if (saved.error) back(saved.error.message);
-  if (formData.get("cover") === "yes") {
-    const cover = await session.supabase.from("providers").update({ cover_image_path: path }).eq("id", providerId);
-    if (cover.error) back(cover.error.message);
+  try {
+    const { session, providerId } = await ownedProvider("providerImage");
+    const file = formData.get("image");
+    if (!(file instanceof File) || file.size === 0) back("Choose an image.");
+    if (file.size > MAX_PROVIDER_IMAGE_BYTES) back("Images must be 5 MB or smaller.");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const image = detectProviderImage(bytes);
+    if (!image) back("Use a JPEG, PNG, or WebP image.");
+    const path = `${providerId}/${crypto.randomUUID()}.${image.extension}`;
+    const uploaded = await session.supabase.storage.from("provider-media").upload(path, bytes, {
+      contentType: image.mime,
+      upsert: false,
+    });
+    if (uploaded.error) back(uploaded.error.message);
+    const saved = await session.supabase.from("provider_images").insert({
+      provider_id: providerId,
+      storage_path: path,
+      caption: String(formData.get("caption") ?? "").trim().slice(0, 120),
+      sort_order: 0,
+    });
+    if (saved.error) back(saved.error.message);
+    if (formData.get("cover") === "yes") {
+      const cover = await session.supabase.from("providers").update({ cover_image_path: path }).eq("id", providerId);
+      if (cover.error) back(cover.error.message);
+    }
+    revalidatePath("/dashboard");
+    revalidatePath(`/providers/${providerId}`);
+    redirect("/dashboard?notice=Photo%20saved");
+  } catch (error) {
+    unstable_rethrow(error);
+    console.error("provider-image", error instanceof Error ? error.message : "upload failed");
+    back("The photo could not be saved.");
   }
-  revalidatePath("/dashboard");
-  revalidatePath(`/providers/${providerId}`);
-  redirect("/dashboard?notice=Photo%20saved");
 }

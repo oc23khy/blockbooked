@@ -26,6 +26,7 @@ describe("security headers", () => {
     assert.match(policy, /form-action 'self'/);
     assert.doesNotMatch(policy, /unsafe-eval/);
     assert.match(nextConfig, /securityHeaderList/);
+    assert.match(nextConfig, /bodySizeLimit:\s*"6mb"/);
   });
 
   it("allows the local compiler to use unsafe-eval only in development", () => {
@@ -80,6 +81,8 @@ describe("provider image contents", () => {
     assert.equal(detectProviderImage(new Uint8Array(MAX_PROVIDER_IMAGE_BYTES + 1)), null);
     assert.match(scheduleAction, /detectProviderImage/);
     assert.doesNotMatch(scheduleAction, /contentType: file\.type/);
+    assert.match(scheduleAction, /unstable_rethrow/);
+    assert.match(scheduleAction, /The photo could not be saved/);
   });
 });
 

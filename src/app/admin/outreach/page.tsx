@@ -65,6 +65,11 @@ export default async function AdminOutreachPage({
       <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/70">
         Keep a private list of businesses to contact later. Opted-out emails stay suppressed and are not imported again. This page does not send email.
       </p>
+      <p className="mt-3">
+        <a href="/admin/outreach/campaigns" className="text-sm font-semibold text-ink underline decoration-line underline-offset-2">
+          Campaign drafts
+        </a>
+      </p>
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
       {shownError(query.error || listed.error?.message || suppressed.error?.message) ? (
         <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error || listed.error?.message || suppressed.error?.message)}</p>

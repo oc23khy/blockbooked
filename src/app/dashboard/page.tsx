@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { ProviderEditor } from "@/components/provider-editor";
 import { ScheduleManager } from "@/components/schedule-manager";
 import { BookingCard, type BookingView } from "@/components/booking-card";
@@ -208,7 +209,12 @@ export default async function DashboardPage({
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-accent-dark">
           Provider dashboard
         </p>
-        <h1 className="mt-2 font-serif text-5xl tracking-tight text-ink">Your business</h1>
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+          <h1 className="font-serif text-5xl tracking-tight text-ink">Your business</h1>
+          <Link href="/dashboard/messages" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
+            Messages
+          </Link>
+        </div>
         <p className="mt-3 max-w-xl text-ink/70">
           {listing
             ? `Status: ${listing.status}. ${

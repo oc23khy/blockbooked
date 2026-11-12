@@ -201,7 +201,12 @@ export default async function AccountPage({
   return (
     <main className="mx-auto grid max-w-6xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-2">
       <section>
-        <h1 className="font-serif text-5xl tracking-tight text-ink">Your account</h1>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="font-serif text-5xl tracking-tight text-ink">Your account</h1>
+          <Link href="/account/messages" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
+            Messages
+          </Link>
+        </div>
         <p className="mt-3 text-ink/70">
           Signed in as {profile.email}. Role: {profile.role}.
         </p>

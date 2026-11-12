@@ -292,6 +292,14 @@ export function BookingCard({
           )}
         </div>
       ) : null}
+      <p className="mt-4">
+        <Link
+          href={audience === "customer" ? `/account/messages/${booking.id}` : `/dashboard/messages/${booking.id}`}
+          className="text-sm font-semibold text-accent-dark"
+        >
+          {audience === "customer" ? "Message provider" : "Message customer"}
+        </Link>
+      </p>
     </li>
   );
 }

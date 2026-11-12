@@ -16,6 +16,7 @@ export const RATE_LIMITS = {
   providerListing: { max: 30, windowSeconds: 60 * 60 },
   providerSchedule: { max: 40, windowSeconds: 60 * 60 },
   adminReconcile: { max: 6, windowSeconds: 60 * 60 },
+  sendMessage: { max: 30, windowSeconds: 10 * 60 },
 } as const;
 
 export type RateOperation = keyof typeof RATE_LIMITS;

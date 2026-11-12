@@ -203,9 +203,14 @@ export default async function AccountPage({
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h1 className="font-serif text-5xl tracking-tight text-ink">Your account</h1>
-          <Link href="/account/messages" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
-            Messages
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/account/calendar" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
+              Calendar
+            </Link>
+            <Link href="/account/messages" className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
+              Messages
+            </Link>
+          </div>
         </div>
         <p className="mt-3 text-ink/70">
           Signed in as {profile.email}. Role: {profile.role}.

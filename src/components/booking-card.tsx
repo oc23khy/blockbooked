@@ -62,7 +62,7 @@ export function BookingCard({
   const canCancel = audience === "customer" && customerCanCancel(booking.status);
 
   return (
-    <li className="rounded-3xl border border-line bg-card px-5 py-4">
+    <li id={`booking-${booking.id}`} className="rounded-3xl border border-line bg-card px-5 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold text-ink">

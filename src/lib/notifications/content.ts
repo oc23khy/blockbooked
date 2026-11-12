@@ -75,7 +75,7 @@ export function rolesForEvent(event: NotificationEvent): NotificationRole[] {
 export function eventMatchesRecord(event: NotificationEvent, bookingStatus: string, payment?: NoticePayment) {
   if (event === "booking_requested") return bookingStatus === "pending" || bookingStatus === "requested";
   if (event === "booking_accepted") return bookingStatus === "accepted";
-  if (event === "booking_cancelled") return bookingStatus === "cancelled";
+  if (event === "booking_cancelled") return bookingStatus === "cancelled" || bookingStatus === "declined";
   if (event === "booking_completed") return bookingStatus === "completed";
   if (event === "payment_succeeded") return payment?.status === "succeeded";
   if (event === "refund_issued") {
@@ -156,7 +156,8 @@ export function planNotices(input: {
   return rolesForEvent(input.event).map((role) => {
     const to = trustedRecipient(role, input.booking);
     const link = `${origin}${bookingPath(role, bookingId)}`;
-    const subject = sanitizeSubject(`${subjects[input.event]} · ${input.booking.serviceName || "BlockBooked"}`);
+    const headline = input.event === "booking_cancelled" && input.booking.status === "declined" ? "Booking declined" : subjects[input.event];
+    const subject = sanitizeSubject(`${headline} · ${input.booking.serviceName || "BlockBooked"}`);
     const facts = noticeFacts(input.event, input.booking, when, input.payment);
     const action = nextActions[input.event];
     return {

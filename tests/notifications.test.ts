@@ -148,10 +148,10 @@ describe("notification recipients and events", () => {
 
   it("follows the saved booking status and ignores a stranger address", () => {
     assert.equal(eventMatchesRecord("booking_accepted", "pending"), false);
-    assert.equal(eventMatchesRecord("booking_cancelled", "declined"), false);
+    assert.equal(eventMatchesRecord("booking_cancelled", "declined"), true);
+    assert.equal(eventMatchesRecord("booking_cancelled", "canceled"), false);
     assert.equal(eventMatchesRecord("booking_completed", "accepted"), false);
     assert.deepEqual(planNotices({ event: "booking_accepted", booking: booking({ status: "pending" }), origin: "https://blockbooked.org" }), []);
-    assert.deepEqual(planNotices({ event: "booking_cancelled", booking: booking({ status: "declined" }), origin: "https://blockbooked.org" }), []);
     const sent = planNotices({
       event: "booking_completed",
       booking: booking({ status: "completed", customerEmail: "customer@example.com", providerEmail: "owner@example.com" }),
@@ -318,6 +318,62 @@ describe("notification delivery", () => {
   });
 });
 
+describe("cancellation notifications", () => {
+  it("tells both people when a paid or unpaid booking is canceled or declined", () => {
+    const paid = planNotices({
+      event: "booking_cancelled",
+      booking: booking({ status: "cancelled" }),
+      payment: payment({ status: "refunded", refundedCents: 10000 }),
+      origin: "https://blockbooked.org",
+    });
+    const unpaid = planNotices({
+      event: "booking_cancelled",
+      booking: booking({ status: "cancelled" }),
+      origin: "https://blockbooked.org",
+    });
+    const declined = planNotices({
+      event: "booking_cancelled",
+      booking: booking({ status: "declined" }),
+      payment: payment({ status: "refunded", refundedCents: 10000 }),
+      origin: "https://blockbooked.org",
+    });
+    const refund = planNotices({
+      event: "refund_issued",
+      booking: booking({ status: "declined" }),
+      payment: payment({ status: "refunded", refundedCents: 10000 }),
+      origin: "https://blockbooked.org",
+    });
+    for (const notices of [paid, unpaid, declined]) {
+      assert.deepEqual(notices.map((notice) => notice.role), ["customer", "provider"]);
+      assert.deepEqual(notices.map((notice) => notice.to), ["customer@example.com", "owner@example.com"]);
+    }
+    assert.match(paid[0]?.subject ?? "", /^Booking canceled/);
+    assert.match(declined[0]?.subject ?? "", /^Booking declined/);
+    assert.equal(refund.length, 1);
+    assert.equal(refund[0]?.role, "customer");
+    assert.notEqual(refund[0]?.idempotencyKey, declined[0]?.idempotencyKey);
+    assert.equal(declined[0]?.idempotencyKey, `booking_cancelled:${bookingId}:customer`);
+    assert.equal(declined[1]?.idempotencyKey, `booking_cancelled:${bookingId}:provider`);
+  });
+
+  it("sends one cancellation email when the same cancellation is dispatched twice", async () => {
+    const log = new MemoryLog();
+    const [customerNotice] = planNotices({
+      event: "booking_cancelled",
+      booking: booking({ status: "declined" }),
+      origin: "https://blockbooked.org",
+    });
+    let calls = 0;
+    const transport: MailTransport = async () => {
+      calls += 1;
+      return { id: "cancel_1" };
+    };
+    assert.equal(await deliverNotification(customerNotice!, log, transport), "sent");
+    assert.equal(await deliverNotification(customerNotice!, log, transport), "skipped");
+    assert.equal(calls, 1);
+  });
+});
+
 describe("notification content safety", () => {
   it("escapes service details and leaves private fields out of the message", () => {
     const hostile = booking({
@@ -346,7 +402,10 @@ describe("notification wiring", () => {
   it("sends only after the booking or payment write and keeps auth email on Supabase", () => {
     assert.match(bookings, /await notifyBookingEvent\("booking_requested", inserted\.data\.id\)/);
     assert.match(bookings, /if \(nextStatus === "accepted"\) await notifyBookingEvent\("booking_accepted", bookingId\)/);
-    assert.match(bookings, /if \(nextStatus === "cancelled"\) await notifyBookingEvent\("booking_cancelled", bookingId\)/);
+    assert.match(bookings, /if \(nextStatus === "cancelled" \|\| nextStatus === "declined"\) await notifyBookingEvent\("booking_cancelled", bookingId\)/);
+    const cancellation = bookings.indexOf('await notifyBookingEvent("booking_cancelled"');
+    const refund = bookings.indexOf("await requestRefund({");
+    assert.ok(cancellation > -1 && cancellation < refund);
     assert.match(bookings, /await notifyBookingEvent\("booking_completed", bookingId\)/);
     assert.doesNotMatch(bookings, /notifyBookingEvent\("booking_declined"/);
     const completed = bookings.indexOf('await notifyBookingEvent("booking_completed"');

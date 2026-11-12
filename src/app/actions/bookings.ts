@@ -249,7 +249,7 @@ export async function updateBookingStatus(formData: FormData) {
   }
 
   if (nextStatus === "accepted") await notifyBookingEvent("booking_accepted", bookingId);
-  if (nextStatus === "cancelled") await notifyBookingEvent("booking_cancelled", bookingId);
+  if (nextStatus === "cancelled" || nextStatus === "declined") await notifyBookingEvent("booking_cancelled", bookingId);
 
   revalidatePath("/account");
   revalidatePath("/dashboard");

@@ -3,9 +3,19 @@ import type { User } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured, supabaseEnv } from "@/lib/supabase/env";
 
+function withUnsubscribeHeaders(response: NextResponse, path: string) {
+  if (path.startsWith("/outreach/unsubscribe") || path.startsWith("/api/outreach/unsubscribe")) {
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("Cache-Control", "private, no-store");
+  }
+  return response;
+}
+
 export async function updateSession(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  const finish = (response: NextResponse) => withUnsubscribeHeaders(response, path);
   if (!isSupabaseConfigured()) {
-    return NextResponse.next({ request });
+    return finish(NextResponse.next({ request }));
   }
 
   const { url, anonKey } = supabaseEnv();
@@ -33,10 +43,9 @@ export async function updateSession(request: NextRequest) {
     const { data } = await supabase.auth.getUser();
     user = data.user;
   } catch {
-    return response;
+    return finish(response);
   }
 
-  const path = request.nextUrl.pathname;
   const isPrivate =
     path.startsWith("/account") || path.startsWith("/dashboard") || path.startsWith("/admin");
 
@@ -70,5 +79,5 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  return response;
+  return finish(response);
 }

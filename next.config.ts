@@ -10,7 +10,17 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaderList() }];
+    const privateUnsubscribe = [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Cache-Control", value: "private, no-store" },
+    ];
+    return [
+      { source: "/:path*", headers: securityHeaderList() },
+      { source: "/outreach/unsubscribe", headers: privateUnsubscribe },
+      { source: "/outreach/unsubscribe/:path*", headers: privateUnsubscribe },
+      { source: "/api/outreach/unsubscribe", headers: privateUnsubscribe },
+      { source: "/api/outreach/unsubscribe/:path*", headers: privateUnsubscribe },
+    ];
   },
   turbopack: {
     rules: {

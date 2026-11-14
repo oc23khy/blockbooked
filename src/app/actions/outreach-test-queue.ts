@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   buildTestQueuePlan,
   TEST_QUEUE_CAMPAIGN_NAME,
+  TEST_QUEUE_RESET_PHRASE,
   testConfirmationMatches,
   type TestFixture,
 } from "@/lib/outreach/test-queue";
@@ -131,4 +132,15 @@ export async function suppressOutreachTestRecipient(formData: FormData) {
   if (suppressed.error || suppressed.data !== "suppressed") sendError("That test recipient could not be suppressed.");
   revalidatePath(path);
   redirect(`${path}?notice=Synthetic%20address%20suppressed.%20No%20live%20prospect%20was%20changed.`);
+}
+
+export async function resetOutreachTestQueue(formData: FormData) {
+  const session = await requireAdmin(path);
+  await redirectIfRateLimited("outreachSend", session.user.id, path);
+  const phrase = String(formData.get("confirmation") ?? "");
+  if (phrase !== TEST_QUEUE_RESET_PHRASE) sendError("Type Reset test queue to reset. Nothing was sent.");
+  const reset = await session.supabase.rpc("reset_outreach_test_queue", { confirmation: phrase });
+  if (reset.error || reset.data !== "reset") sendError("The test queue could not be reset. Nothing was sent.");
+  revalidatePath(path);
+  redirect(`${path}?notice=Test%20queue%20reset.%20No%20email%20was%20sent.`);
 }

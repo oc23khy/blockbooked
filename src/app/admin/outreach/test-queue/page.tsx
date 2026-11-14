@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   confirmOutreachTestQueue,
+  resetOutreachTestQueue,
   retryOutreachTestQueue,
   saveOutreachTestQueue,
   suppressOutreachTestRecipient,
 } from "@/app/actions/outreach-test-queue";
-import { buildTestQueuePlan, TEST_QUEUE_CAMPAIGN_ID, TEST_QUEUE_CAMPAIGN_NAME, type TestFixture } from "@/lib/outreach/test-queue";
+import { buildTestQueuePlan, TEST_QUEUE_CAMPAIGN_ID, TEST_QUEUE_CAMPAIGN_NAME, TEST_QUEUE_RESET_PHRASE, type TestFixture } from "@/lib/outreach/test-queue";
 import { shownError } from "@/lib/public-error";
 import { requireAdmin } from "@/lib/session";
 
@@ -115,6 +116,14 @@ export default async function OutreachTestQueuePage({
           </form>
         </div>
       ) : null}
+      {unavailable ? null : (
+        <form action={resetOutreachTestQueue} className="mt-6 max-w-md rounded-2xl border border-line bg-card p-4">
+          <label className="block text-sm font-medium text-ink">Type “{TEST_QUEUE_RESET_PHRASE}” to clear this simulation. Seeded fixtures stay. Nothing is sent.
+            <input name="confirmation" className="mt-1 w-full rounded-xl border border-line bg-sand px-3 py-2" autoComplete="off" />
+          </label>
+          <button type="submit" className="mt-3 rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">Reset test queue</button>
+        </form>
+      )}
     </main>
   );
 }

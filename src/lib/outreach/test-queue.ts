@@ -4,6 +4,7 @@ import { confirmationMatches, nextOutreachAttempt } from "./sending.ts";
 
 export const TEST_QUEUE_CAMPAIGN_ID = "00000000-0000-4000-8000-0000000000a1";
 export const TEST_QUEUE_CAMPAIGN_NAME = "Queue test";
+export const TEST_QUEUE_RESET_PHRASE = "Reset test queue";
 
 export type TestFixture = {
   id: string;

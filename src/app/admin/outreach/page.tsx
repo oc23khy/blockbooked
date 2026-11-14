@@ -69,6 +69,9 @@ export default async function AdminOutreachPage({
         <a href="/admin/outreach/campaigns" className="text-sm font-semibold text-ink underline decoration-line underline-offset-2">
           Campaign drafts
         </a>
+        <a href="/admin/outreach/test-queue" className="ml-4 text-sm font-semibold text-ink underline decoration-line underline-offset-2">
+          Test queue simulation
+        </a>
       </p>
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
       {shownError(query.error || listed.error?.message || suppressed.error?.message) ? (

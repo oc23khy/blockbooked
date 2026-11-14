@@ -17,6 +17,7 @@ export const RATE_LIMITS = {
   providerSchedule: { max: 40, windowSeconds: 60 * 60 },
   adminReconcile: { max: 6, windowSeconds: 60 * 60 },
   outreachWrite: { max: 40, windowSeconds: 10 * 60 },
+  outreachSend: { max: 10, windowSeconds: 10 * 60 },
   outreachUnsubscribeIp: { max: 60, windowSeconds: 10 * 60 },
   outreachUnsubscribeToken: { max: 8, windowSeconds: 10 * 60 },
   sendMessage: { max: 30, windowSeconds: 10 * 60 },

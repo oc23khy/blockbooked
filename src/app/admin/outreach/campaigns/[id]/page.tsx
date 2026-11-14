@@ -117,7 +117,10 @@ export default async function EditOutreachCampaignPage({
         <Link href="/admin/outreach/campaigns" className="underline decoration-line underline-offset-2">Campaign drafts</Link>
       </p>
       <h1 className="mt-2 font-serif text-4xl tracking-tight text-ink">{row.name}</h1>
-      <p className="mt-2 text-sm text-ink/70">{eligible.length} eligible recipients. Sending is not available.</p>
+      <p className="mt-2 text-sm text-ink/70">
+        {eligible.length} eligible recipients. Sending is not available.{" "}
+        <Link href={`/admin/outreach/campaigns/${row.id}/review`} className="font-semibold text-ink underline decoration-line underline-offset-2">Review the send queue</Link>
+      </p>
       {query.notice ? <p className="mt-4 text-sm font-medium text-ink">{query.notice}</p> : null}
       {shownError(query.error || prospects.error || suppressions.error) ? (
         <p className="mt-4 text-sm font-medium text-accent-dark">{shownError(query.error || prospects.error || suppressions.error)}</p>

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { invokeRetiredAdminAction } from "@/lib/admin/retired-actions";
+import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
+import { bookingCreationBlock } from "@/lib/bookings/maintenance-decision";
 import { parseFixedPriceCents } from "@/lib/payments/money";
 import {
   readCommissionBps,
@@ -37,6 +39,8 @@ export async function connectStripeAccount() {
 
 export async function payForBooking(formData: FormData) {
   const session = await requireSession("/account");
+  const maintenance = bookingCreationBlock(await readBookingCreationDecision());
+  if (maintenance) redirect(`/account?error=${encodeURIComponent(maintenance)}`);
   await redirectIfRateLimited("checkout", session.user.id, "/account");
   const bookingId = String(formData.get("bookingId") ?? "");
   if (!stripeTestKeyConfigured() || !isServiceRoleConfigured()) {
@@ -48,6 +52,12 @@ export async function payForBooking(formData: FormData) {
   } catch (error) {
     if (error instanceof Error && error.message === "unauthorized") {
       redirect("/account?error=You%20cannot%20pay%20for%20that%20booking.");
+    }
+    if (error instanceof Error && error.message === "Choose an appointment time before paying.") {
+      redirect("/account?error=Choose%20an%20appointment%20time%20before%20paying.%20You%20were%20not%20charged.");
+    }
+    if (error instanceof Error && error.message === "This payment was already submitted. You were not charged again.") {
+      redirect("/account?notice=Stripe%20is%20confirming%20this%20payment.%20You%20were%20not%20charged%20again.");
     }
     redirect("/account?error=The%20payment%20could%20not%20be%20started.");
   }

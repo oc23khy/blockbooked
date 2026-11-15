@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { updateProfile } from "@/app/actions/auth";
 import { BookingCard, type BookingView } from "@/components/booking-card";
+import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
+import { BOOKING_MAINTENANCE_MESSAGE } from "@/lib/bookings/maintenance-decision";
 import { accountPaymentNotice } from "@/lib/payments/account-notice";
 import { shownError } from "@/lib/public-error";
 import { displayedDeadline } from "@/lib/scheduling/expiration";
@@ -23,6 +25,7 @@ type CustomerBooking = {
   created_at?: string;
   acceptance_deadline?: string | null;
   expiration_grace?: boolean | null;
+  provider_id: string;
   providers: { business_name: string; timezone?: string } | { business_name: string; timezone?: string }[] | null;
 };
 
@@ -36,14 +39,14 @@ export default async function AccountPage({
   const bookingQuery = await supabase
     .from("booking_requests")
     .select(
-      "id, preferred_date, time_window, notes, contact_phone, service_name, status, completed_at, review_requested_at, created_at, acceptance_deadline, expiration_grace, providers(business_name, timezone)",
+      "id, provider_id, preferred_date, time_window, notes, contact_phone, service_name, status, completed_at, review_requested_at, created_at, acceptance_deadline, expiration_grace, providers(business_name, timezone)",
     )
     .eq("customer_id", profile.id)
     .order("created_at", { ascending: false });
   const legacyBookingQuery = bookingQuery.error
     ? await supabase
         .from("booking_requests")
-        .select("id, preferred_date, time_window, notes, contact_phone, service_name, status, providers(business_name)")
+        .select("id, provider_id, preferred_date, time_window, notes, contact_phone, service_name, status, providers(business_name)")
         .eq("customer_id", profile.id)
         .order("created_at", { ascending: false })
     : null;
@@ -167,11 +170,14 @@ export default async function AccountPage({
       quoteAmountCents: quotes.get(booking.id)?.amount_cents ?? null,
       quoteStatus: quotes.get(booking.id)?.status ?? null,
       appointmentStart: appointmentStarts.get(booking.id) ?? null,
+      providerId: booking.provider_id,
       timeZone: related?.timezone ?? "America/Chicago",
       acceptanceDeadline: displayedDeadline(
         booking.acceptance_deadline ?? null,
         appointmentStarts.get(booking.id) ?? null,
         Boolean(booking.expiration_grace),
+        booking.created_at ?? null,
+        payments.get(booking.id)?.status === "succeeded" || payments.get(booking.id)?.status === "partially_refunded",
       ),
       rescheduleRequests: reschedules.get(booking.id) ?? [],
       needsPayment:
@@ -215,6 +221,9 @@ export default async function AccountPage({
         <p className="mt-3 text-ink/70">
           Signed in as {profile.email}. Role: {profile.role}.
         </p>
+        {(await readBookingCreationDecision()) === "paused" ? (
+          <p className="mt-4 text-sm font-medium text-accent-dark">{BOOKING_MAINTENANCE_MESSAGE}</p>
+        ) : null}
         {accountPaymentNotice({ notice: query.notice, checkout: query.checkout, bookings: history }) ? (
           <p className="mt-4 text-sm font-medium text-ink">
             {accountPaymentNotice({ notice: query.notice, checkout: query.checkout, bookings: history })}

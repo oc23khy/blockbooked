@@ -24,6 +24,7 @@ type ProviderBooking = {
   status: string;
   completed_at?: string | null;
   review_requested_at?: string | null;
+  created_at?: string | null;
   acceptance_deadline?: string | null;
   expiration_grace?: boolean | null;
   profiles:
@@ -66,7 +67,7 @@ export default async function DashboardPage({
     ? await supabase
         .from("booking_requests")
         .select(
-          "id, preferred_date, time_window, notes, contact_phone, service_name, status, completed_at, review_requested_at, acceptance_deadline, expiration_grace, profiles(full_name, phone, email)",
+          "id, preferred_date, time_window, notes, contact_phone, service_name, status, completed_at, review_requested_at, created_at, acceptance_deadline, expiration_grace, profiles(full_name, phone, email)",
         )
         .eq("provider_id", listing.id)
         .order("created_at", { ascending: false })
@@ -189,6 +190,8 @@ export default async function DashboardPage({
         request.acceptance_deadline ?? null,
         (appointments.get(request.id)?.starts_at as string | undefined) ?? null,
         Boolean(request.expiration_grace),
+        request.created_at ?? null,
+        payments.get(request.id)?.status === "succeeded" || payments.get(request.id)?.status === "partially_refunded",
       ),
       rescheduleRequests: reschedules.get(request.id) ?? [],
     } satisfies BookingView;

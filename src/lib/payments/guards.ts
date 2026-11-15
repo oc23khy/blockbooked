@@ -80,8 +80,12 @@ export function payoutLabel(status: string | null | undefined) {
   }
 }
 
-export function refundIdempotencyKey(refundId: string) {
-  return `refund_${refundId}`;
+export function refundIdempotencyKey(refundId: string, attempt = 1) {
+  if (!Number.isInteger(attempt) || attempt < 1) {
+    throw new Error("Refund attempt must be a positive integer.");
+  }
+  if (attempt === 1) return `refund_${refundId}`;
+  return `refund_${refundId}_${attempt}`;
 }
 
 export function reversalIdempotencyKey(refundId: string) {
@@ -151,6 +155,7 @@ export const ADMIN_EXCEPTION_ENTRY_TYPES = [
   "transfer_reversal_uncertain",
   "refund_failed",
   "refund_uncertain",
+  "duplicate_refund_needs_review",
   "dispute_opened",
   "dispute_closed",
   "live_event_rejected",

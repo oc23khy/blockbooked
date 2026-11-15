@@ -1,8 +1,8 @@
-import { refundExpiredBooking } from "@/lib/bookings/expire";
+import { refundClosedBooking } from "@/lib/bookings/expire";
 import { notifyPersistedStripeEvent } from "@/lib/notifications/dispatch";
 import { isAccountRequirementsEvent } from "@/lib/payments/connect";
 import { applyStripeEvent } from "@/lib/payments/events";
-import { refreshConnectedAccountByStripeId, settleRefundFromStripe } from "@/lib/payments/service";
+import { refreshConnectedAccountByStripeId, refundDuplicateCharges, settleRefundFromStripe } from "@/lib/payments/service";
 import { createPaymentStore } from "@/lib/payments/store";
 import { feeFromStripeCharge, readChargeProcessingFee } from "@/lib/payments/stripe-fee";
 import { getStripe } from "@/lib/payments/stripe-server";
@@ -83,12 +83,17 @@ export async function POST(request: Request) {
     metadata && typeof metadata === "object" && "booking_id" in metadata && typeof metadata.booking_id === "string"
       ? metadata.booking_id
       : null;
-  if (bookingId && (event.type === "checkout.session.completed" || event.type === "payment_intent.succeeded")) {
+  if (bookingId && (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded" || event.type === "payment_intent.succeeded")) {
     try {
-      await refundExpiredBooking(bookingId);
+      await refundClosedBooking(bookingId);
     } catch {
       // The payment is already recorded. The expiration worker retries the refund.
     }
+  }
+  try {
+    await refundDuplicateCharges();
+  } catch {
+    // The extra charge stays refund_pending. The expiration worker retries it.
   }
 
   if (

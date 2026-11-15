@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createBooking } from "@/app/actions/bookings";
+import { createBooking, reserveBookingAppointment } from "@/app/actions/bookings";
 import { appointmentLabel, bookPath, loginPathForBooking } from "@/lib/scheduling/booking";
 import type { CatalogService } from "@/lib/scheduling/public";
 import { zonedParts } from "@/lib/scheduling/rules";
@@ -16,6 +16,7 @@ export function AppointmentCalendar({
   slotsByService,
   selectedServiceId,
   signedIn,
+  reserveBookingId,
 }: {
   providerId: string;
   timeZone: string;
@@ -23,6 +24,7 @@ export function AppointmentCalendar({
   slotsByService: Record<string, { start: string; end: string }[]>;
   selectedServiceId: string;
   signedIn: boolean;
+  reserveBookingId?: string;
 }) {
   const bookable = services.filter((service) => service.durationMinutes && (slotsByService[service.id]?.length ?? 0) > 0);
   const selected = bookable.find((service) => service.id === selectedServiceId) ?? bookable[0];
@@ -56,7 +58,7 @@ export function AppointmentCalendar({
               {times.map((slot) => {
                 const href = selected
                   ? signedIn
-                    ? bookPath(providerId, selected.id, slot.start)
+                    ? bookPath(providerId, selected.id, slot.start, reserveBookingId)
                     : loginPathForBooking(providerId, selected.id, slot.start)
                   : `/login?next=${encodeURIComponent(`/providers/${providerId}`)}`;
                 return (
@@ -86,6 +88,7 @@ export function AppointmentConfirm({
   signedIn,
   error,
   notice,
+  reserveBookingId,
 }: {
   providerId: string;
   providerName: string;
@@ -96,6 +99,7 @@ export function AppointmentConfirm({
   signedIn: boolean;
   error?: string;
   notice?: string;
+  reserveBookingId?: string;
 }) {
   const when = appointmentLabel(startsAt, timeZone);
   if (!signedIn) {
@@ -115,12 +119,15 @@ export function AppointmentConfirm({
   }
 
   return (
-    <form action={createBooking} className="rounded-3xl border border-line bg-card p-6">
-      <h2 className="font-serif text-3xl text-ink">Book this time</h2>
+    <form action={reserveBookingId ? reserveBookingAppointment : createBooking} className="rounded-3xl border border-line bg-card p-6">
+      <h2 className="font-serif text-3xl text-ink">{reserveBookingId ? "Hold this time" : "Book this time"}</h2>
       <p className="mt-2 text-sm leading-6 text-ink/70">
-        This request holds the time until {providerName} accepts it. A payment does not confirm the appointment.
+        {reserveBookingId
+          ? "This holds the time for your quote. It does not charge you or accept the booking."
+          : "This request holds the time until the provider accepts it. A payment does not confirm the appointment."}
       </p>
       <input type="hidden" name="providerId" value={providerId} />
+      {reserveBookingId ? <input type="hidden" name="bookingId" value={reserveBookingId} /> : null}
       <input type="hidden" name="serviceId" value={service.id} />
       <input type="hidden" name="startsAt" value={startsAt} />
       <dl className="mt-4 space-y-2 text-sm text-ink">
@@ -141,7 +148,7 @@ export function AppointmentConfirm({
         Phone
         <input name="phone" type="tel" className="mt-1 w-full rounded-xl border border-line bg-sand px-3 py-2.5" />
       </label>
-      {paymentsEnabled && service.pricingType !== "quote" ? (
+      {!reserveBookingId && paymentsEnabled && service.pricingType !== "quote" ? (
         <fieldset className="mt-3 grid gap-2 text-sm text-ink">
           <legend className="font-medium">How to pay</legend>
           <label className="flex gap-2"><input type="radio" name="paymentPlan" value="single" defaultChecked /> Pay {money(service.priceCents)} now</label>
@@ -157,7 +164,7 @@ export function AppointmentConfirm({
       </label>
       {error ? <p className="mt-3 text-sm font-medium text-accent-dark">{error}</p> : null}
       {notice ? <p className="mt-3 text-sm font-medium text-ink">{notice}</p> : null}
-      <button className="mt-5 w-full rounded-full bg-accent px-4 py-3 text-sm font-semibold text-white">Confirm this appointment</button>
+      <button className="mt-5 w-full rounded-full bg-accent px-4 py-3 text-sm font-semibold text-white">{reserveBookingId ? "Hold this time" : "Confirm this appointment"}</button>
     </form>
   );
 }

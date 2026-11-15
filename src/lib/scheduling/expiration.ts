@@ -1,14 +1,29 @@
 export const ACCEPTANCE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const UNPAID_HOLD_MS = 30 * 60 * 1000;
+export const UNPAID_HOLD_LIMIT = 2;
 
 export function expirationRpcBookingId(row: { booking_id?: string | null; expired_booking_id?: string | null }) {
   const id = row.expired_booking_id ?? row.booking_id;
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
-export function displayedDeadline(storedDeadline: string | null, appointmentStart: string | null, grace = false) {
+export function displayedDeadline(
+  storedDeadline: string | null,
+  appointmentStart: string | null,
+  grace = false,
+  createdAt: string | null = null,
+  paid = true,
+) {
   if (!storedDeadline) return null;
   if (grace) return storedDeadline;
-  return earlierDeadline(storedDeadline, appointmentStart);
+  const acceptance = earlierDeadline(storedDeadline, appointmentStart);
+  if (paid || !appointmentStart || !createdAt) return acceptance;
+  const unpaid = new Date(Date.parse(createdAt) + UNPAID_HOLD_MS).toISOString();
+  return earlierDeadline(acceptance, unpaid);
+}
+
+export function unpaidHoldAllowed(existingUnpaidHolds: number) {
+  return existingUnpaidHolds < UNPAID_HOLD_LIMIT;
 }
 
 export function expirationRefundPlan(input: {
@@ -18,7 +33,9 @@ export function expirationRefundPlan(input: {
   refundedCents: number;
   openRefundId: string | null;
 }) {
-  if (input.bookingStatus !== "expired") return "skip" as const;
+  if (input.bookingStatus !== "expired" && input.bookingStatus !== "cancelled" && input.bookingStatus !== "declined") {
+    return "skip" as const;
+  }
   if (input.paymentStatus !== "succeeded" && input.paymentStatus !== "partially_refunded") return "skip" as const;
   if (input.refundedCents >= input.amountCents) return "skip" as const;
   if (input.openRefundId) return "replay" as const;

@@ -31,6 +31,7 @@ export type BookingView = {
   quoteStatus?: string | null;
   needsPayment?: boolean;
   appointmentStart?: string | null;
+  providerId?: string | null;
   timeZone?: string | null;
   acceptanceDeadline?: string | null;
   rescheduleRequests?: {
@@ -179,6 +180,14 @@ export function BookingCard({
             </li>
           ))}
         </ul>
+      ) : null}
+      {audience === "customer" && booking.status === "pending" && !booking.appointmentStart && booking.providerId ? (
+        <p className="mt-4 text-sm leading-6 text-ink/75">
+          This request does not hold an appointment.
+          <Link href={`/providers/${booking.providerId}?reserve=${booking.id}`} className="ml-1 font-semibold text-ink underline">
+            Choose an open time
+          </Link>
+        </p>
       ) : null}
       {audience === "customer" && booking.status === "accepted" && booking.appointmentStart ? (
         <Link href={`/account/reschedule/${booking.id}`} className="mt-4 inline-flex rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">

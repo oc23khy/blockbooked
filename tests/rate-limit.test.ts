@@ -161,7 +161,7 @@ describe("rate limit enforcement", () => {
 
   it("protects booking, payment, quote, and login actions without limiting Stripe or cron", () => {
     const createLimit = bookings.indexOf('reserveBookingRateLimit("createBooking"');
-    const createInsert = bookings.indexOf('.from("booking_requests")\n    .insert(');
+    const createInsert = bookings.indexOf('rpc("create_reserved_booking"');
     const statusLimit = bookings.indexOf('reserveBookingRateLimit("bookingStatus"');
     const statusUpdate = bookings.indexOf(".update({ status: nextStatus, rate_limit_receipt: statusReceipt })");
     const checkoutLimit = bookings.indexOf('redirectIfRateLimited("checkout"');

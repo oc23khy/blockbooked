@@ -15,6 +15,7 @@ import {
   transferClaimDecision,
 } from "../src/lib/payments/guards.ts";
 import { applyStripeEvent, type PaymentSnapshot, type PaymentStore } from "../src/lib/payments/events.ts";
+import { checkoutReuseDecision, duplicateRefundKey, duplicateRefundPlan, firstChargeDecision, savedChargeResult, terminalRefundDecision } from "../src/lib/payments/lifecycle.ts";
 import { feeFromStripeCharge, nextStripeFeeCents, readChargeProcessingFee } from "../src/lib/payments/stripe-fee.ts";
 import {
   connectedAccountReadiness,
@@ -103,6 +104,22 @@ function memoryStore(initial?: PaymentSnapshot): PaymentStore & {
     },
     async saveConnectedAccount() {},
     async markRefund() {},
+    async claimFirstCharge(input) {
+      if (state.saved.paymentIntentId && input.paymentIntentId && state.saved.paymentIntentId !== input.paymentIntentId) {
+        return "duplicate" as const;
+      }
+      state.saved = {
+        ...state.saved,
+        status: "succeeded",
+        paymentIntentId: input.paymentIntentId ?? state.saved.paymentIntentId,
+        chargeId: input.chargeId ?? state.saved.chargeId,
+        stripeFeeCents: input.stripeFeeCents ?? state.saved.stripeFeeCents,
+      };
+      return "recorded" as const;
+    },
+    async noteDuplicateCharge(input) {
+      ledger.push(`duplicate:${input.paymentIntentId}`);
+    },
   };
 }
 
@@ -206,6 +223,51 @@ describe("webhook processing", () => {
     });
   });
 
+  it("keeps the original charge when a second Checkout succeeds", async () => {
+    const store = memoryStore(payment({ status: "succeeded", paymentIntentId: "pi_original" }));
+    const result = await applyStripeEvent(
+      {
+        id: "evt_second",
+        type: "checkout.session.completed",
+        livemode: false,
+        object: {
+          id: "cs_second",
+          amount_total: 10_000,
+          currency: "usd",
+          payment_status: "paid",
+          payment_intent: "pi_duplicate",
+          metadata: { payment_id: "pay_1" },
+        },
+      },
+      store,
+    );
+    assert.equal(result.status, "processed");
+    assert.deepEqual(result.duplicatePaymentIntents, ["pi_duplicate"]);
+    assert.equal(store.saved.paymentIntentId, "pi_original");
+    assert.equal(store.saved.status, "succeeded");
+    assert.equal(store.ledger.at(-1), "duplicate_charge");
+    assert.equal(duplicateRefundKey("pi_duplicate"), "duplicate_refund_pi_duplicate");
+    assert.equal(firstChargeDecision({ paymentIntentId: "pi_original" }, "pi_original"), "record");
+  });
+
+  it("refunds a payment that arrives after cancel, decline, or expiry and keeps a completed booking", () => {
+    assert.equal(terminalRefundDecision("cancelled"), "refund");
+    assert.equal(terminalRefundDecision("declined"), "refund");
+    assert.equal(terminalRefundDecision("expired"), "refund");
+    assert.equal(terminalRefundDecision("accepted"), "keep");
+    assert.equal(terminalRefundDecision("completed"), "keep");
+    assert.equal(terminalRefundDecision("pending"), "keep");
+  });
+
+  it("reuses an open Checkout session and does not open another after completion", () => {
+    assert.deepEqual(checkoutReuseDecision({ status: "open", url: "https://checkout.stripe.test/open" }), {
+      action: "reuse",
+      url: "https://checkout.stripe.test/open",
+    });
+    assert.deepEqual(checkoutReuseDecision({ status: "complete", url: null }), { action: "wait" });
+    assert.deepEqual(checkoutReuseDecision({ status: "expired", url: null }), { action: "create" });
+  });
+
   it("does not mark a mismatched checkout paid", async () => {
     const store = memoryStore();
     const result = await applyStripeEvent(
@@ -218,6 +280,7 @@ describe("webhook processing", () => {
           amount_total: 100,
           currency: "usd",
           payment_status: "paid",
+          payment_intent: "pi_mismatch",
           metadata: { payment_id: "pay_1" },
         },
       },
@@ -225,7 +288,52 @@ describe("webhook processing", () => {
     );
     assert.equal(result.status, "processed");
     assert.equal(store.saved?.status, "requires_payment");
-    assert.equal(store.ledger[0], "payment_mismatch");
+    assert.equal(store.saved?.paymentIntentId, null);
+    assert.equal(store.ledger.includes("payment_mismatch"), true);
+    assert.deepEqual(result.duplicatePaymentIntents, ["pi_mismatch"]);
+  });
+
+  it("keeps a webhook retryable when the extra charge cannot be saved", async () => {
+    const store = memoryStore(payment({ status: "succeeded", paymentIntentId: "pi_original" }));
+    store.noteDuplicateCharge = async () => {
+      throw new Error("insert failed");
+    };
+    const result = await applyStripeEvent(
+      {
+        id: "evt_write_failed",
+        type: "checkout.session.completed",
+        livemode: false,
+        object: {
+          id: "cs_fail",
+          amount_total: 10_000,
+          currency: "usd",
+          payment_status: "paid",
+          payment_intent: "pi_extra",
+          metadata: { payment_id: "pay_1" },
+        },
+      },
+      store,
+    );
+    assert.equal(result.status, "failed");
+    assert.equal(store.events.get("evt_write_failed"), "failed");
+    assert.equal(store.saved.paymentIntentId, "pi_original");
+    assert.equal(savedChargeResult({ error: "insert failed", savedId: null, existingId: null }).ok, false);
+    assert.equal(savedChargeResult({ error: null, savedId: null, existingId: "row" }).ok, true);
+  });
+
+  it("retries a temporary duplicate refund and stops a permanent one for review", () => {
+    const now = Date.parse("2026-11-14T12:00:00Z");
+    const retry = duplicateRefundPlan({ outcome: "failed", failureCode: null, attemptCount: 0, nowMs: now });
+    assert.equal(retry.status, "refund_pending");
+    assert.equal(retry.attemptCount, 1);
+    assert.equal(duplicateRefundKey("pi_1", 1), "duplicate_refund_pi_1");
+    assert.equal(duplicateRefundKey("pi_1", retry.attemptCount + 1), "duplicate_refund_pi_1_2");
+    const pending = duplicateRefundPlan({ outcome: "uncertain", failureCode: "timeout", attemptCount: 1, nowMs: now });
+    assert.equal(pending.status, "refund_pending");
+    assert.equal(pending.attemptCount, 1);
+    const stopped = duplicateRefundPlan({ outcome: "failed", failureCode: "lost_or_stolen_card", attemptCount: 0, nowMs: now });
+    assert.equal(stopped.status, "needs_review");
+    assert.equal(stopped.review, true);
   });
 
   it("skips a duplicate event and retries a failed one", async () => {

@@ -54,7 +54,7 @@ export default async function AdminOverviewPage({
       supabase.from("booking_requests").select("id", { count: "exact", head: true }).eq("status", status),
     ),
   ]);
-  const [payments, refunds, pendingApplications, reviews] = await Promise.all([
+  const [payments, refunds, pendingApplications, reviews, duplicateRefunds] = await Promise.all([
     readAllPages<PaymentRow>((from, to) =>
       supabase
         .from("payments")
@@ -77,6 +77,7 @@ export default async function AdminOverviewPage({
       .select("id", { count: "exact", head: true })
       .eq("status", "accepted")
       .not("review_requested_at", "is", null),
+    supabase.from("payment_extra_charges").select("id", { count: "exact", head: true }).eq("status", "needs_review"),
   ]);
   const countError =
     bookingTotal.error?.message ||
@@ -177,6 +178,7 @@ export default async function AdminOverviewPage({
       <p className="mt-6 text-sm text-ink/70">
         Pending {counts.pending} · accepted {counts.accepted} · declined {counts.declined} · cancelled {counts.cancelled} ·
         expired {counts.expired}
+        {duplicateRefunds.error ? null : ` · duplicate refunds needing review ${duplicateRefunds.count ?? 0}`}
       </p>
       <form action={reconcileSandboxFees} className="mt-8 max-w-2xl rounded-3xl border border-line bg-card px-5 py-4">
         <h2 className="font-serif text-2xl text-ink">Record missing Stripe fees</h2>

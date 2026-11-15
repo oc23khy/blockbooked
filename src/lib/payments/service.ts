@@ -1,3 +1,5 @@
+import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
+import { bookingCreationBlock } from "@/lib/bookings/maintenance-decision";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isServiceRoleConfigured } from "@/lib/supabase/admin";
 import {
@@ -24,6 +26,7 @@ import {
   connectedAccountReadiness,
   platformCheckoutIntent,
 } from "@/lib/payments/connect";
+import { checkoutReuseDecision, duplicateRefundKey, duplicateRefundPlan } from "@/lib/payments/lifecycle";
 import { getStripe, siteUrl, stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { notifyRefundIssued } from "@/lib/notifications/dispatch";
 
@@ -81,6 +84,8 @@ export async function startCheckout(input: {
   customerEmail: string;
   milestoneId?: string | null;
 }) {
+  const maintenance = bookingCreationBlock(await readBookingCreationDecision());
+  if (maintenance) throw new Error(maintenance);
   const admin = createAdminClient();
   const stripeClient = getStripe();
   const quote = quoteServicePayment(input.amountCents, await readCommissionBps());
@@ -145,6 +150,8 @@ export async function startCheckout(input: {
 }
 
 export async function resumeCheckout(bookingId: string, customerId: string) {
+  const maintenance = bookingCreationBlock(await readBookingCreationDecision());
+  if (maintenance) throw new Error(maintenance);
   const admin = createAdminClient();
   const { data } = await admin
     .from("payments")
@@ -160,6 +167,14 @@ export async function resumeCheckout(bookingId: string, customerId: string) {
     throw new Error("unauthorized");
   }
   const stripeClient = getStripe();
+  if (payment.checkout_session_id) {
+    const existing = await stripeClient.checkout.sessions.retrieve(payment.checkout_session_id);
+    const reuse = checkoutReuseDecision({ status: existing.status, url: existing.url });
+    if (reuse.action === "reuse") return reuse.url;
+    if (reuse.action === "wait") {
+      throw new Error("This payment was already submitted. You were not charged again.");
+    }
+  }
   const session = await stripeClient.checkout.sessions.create(
     {
       mode: "payment",
@@ -443,6 +458,82 @@ export async function releaseProviderTransfer(bookingId: string) {
   return { status: lastStatus };
 }
 
+export async function refundDuplicateCharges() {
+  if (!stripeTestKeyConfigured() || !isServiceRoleConfigured()) return { refunded: 0, review: 0 };
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+  const pending = await admin
+    .from("payment_extra_charges")
+    .select("id, payment_id, booking_id, payment_intent_id, amount_cents, attempt_count, next_retry_at")
+    .eq("status", "refund_pending")
+    .or(`next_retry_at.is.null,next_retry_at.lte.${now}`)
+    .limit(20);
+  if (pending.error) throw new Error(pending.error.message);
+  let refunded = 0;
+  let review = 0;
+  for (const row of (pending.data ?? []) as {
+    id: string;
+    payment_id: string;
+    booking_id: string;
+    payment_intent_id: string;
+    amount_cents: number;
+    attempt_count: number;
+  }[]) {
+    const attempt = row.attempt_count + 1;
+    let outcome: "succeeded" | "pending" | "failed" | "canceled" | "uncertain" | "rejected" = "uncertain";
+    let failureCode: string | null = null;
+    let stripeRefundId: string | null = null;
+    try {
+      const refund = await getStripe().refunds.create(
+        { payment_intent: row.payment_intent_id, amount: row.amount_cents },
+        { idempotencyKey: duplicateRefundKey(row.payment_intent_id, attempt) },
+      );
+      stripeRefundId = refund.id;
+      failureCode = refund.failure_reason ?? null;
+      outcome = refund.status === "succeeded" || refund.status === "pending" || refund.status === "failed" || refund.status === "canceled"
+        ? refund.status
+        : "pending";
+    } catch (error) {
+      const kind = classifyStripeFailure(stripeFailure(error));
+      outcome = kind === "uncertain" ? "uncertain" : "rejected";
+      failureCode = error instanceof Error ? error.message.slice(0, 200) : "Stripe refund failed.";
+    }
+    const plan = duplicateRefundPlan({
+      outcome,
+      failureCode,
+      attemptCount: row.attempt_count,
+      nowMs: Date.now(),
+    });
+    const saved = await admin
+      .from("payment_extra_charges")
+      .update({
+        status: plan.status,
+        attempt_count: plan.attemptCount,
+        next_retry_at: plan.nextRetryAtMs == null ? null : new Date(plan.nextRetryAtMs).toISOString(),
+        failure_reason: failureCode,
+        ...(stripeRefundId ? { stripe_refund_id: stripeRefundId } : {}),
+      })
+      .eq("id", row.id)
+      .eq("status", "refund_pending")
+      .select("id");
+    if (saved.error) throw new Error(saved.error.message);
+    if (!saved.data || saved.data.length === 0) continue;
+    if (plan.status === "refunded") refunded += 1;
+    if (plan.review) {
+      review += 1;
+      await ledger({
+        paymentId: row.payment_id,
+        bookingId: row.booking_id,
+        entryType: "duplicate_refund_needs_review",
+        amountCents: row.amount_cents,
+        stripeObjectId: row.payment_intent_id,
+        note: `A duplicate charge refund needs an administrator. ${failureCode ?? "The retry limit was reached."}`.slice(0, 500),
+      });
+    }
+  }
+  return { refunded, review };
+}
+
 export async function requestRefund(input: {
   bookingId: string;
   actorId: string;
@@ -479,7 +570,7 @@ export async function requestRefund(input: {
   if (payment.status !== "succeeded" && payment.status !== "partially_refunded") {
     return { ok: false as const, message: "This payment cannot be refunded yet." };
   }
-  const pending = await admin.from("refunds").select("id, status, amount_cents, provider_reversal_cents").eq("payment_id", payment.id).eq("status", "pending").maybeSingle();
+  const pending = await admin.from("refunds").select("id, status, amount_cents, provider_reversal_cents, attempt_count, next_retry_at").eq("payment_id", payment.id).eq("status", "pending").maybeSingle();
   const prior = await admin
     .from("refunds")
     .select("amount_cents, provider_reversal_cents")
@@ -499,6 +590,8 @@ export async function requestRefund(input: {
       bookingId: input.bookingId,
       refundCents: pending.data?.amount_cents as number,
       providerReversalCents: pending.data?.provider_reversal_cents as number,
+      attemptCount: (pending.data?.attempt_count as number | undefined) ?? 0,
+      nextRetryAt: (pending.data?.next_retry_at as string | null | undefined) ?? null,
     });
   }
   if (coverage.needsRepair) {
@@ -555,7 +648,7 @@ export async function requestRefund(input: {
     if (message.includes("refunds_one_open_payment_uidx") || message.includes("duplicate key")) {
       const open = await admin
         .from("refunds")
-        .select("id, amount_cents, provider_reversal_cents")
+        .select("id, amount_cents, provider_reversal_cents, attempt_count, next_retry_at")
         .eq("payment_id", payment.id)
         .eq("status", "pending")
         .maybeSingle();
@@ -566,6 +659,8 @@ export async function requestRefund(input: {
           bookingId: input.bookingId,
           refundCents: open.data.amount_cents as number,
           providerReversalCents: open.data.provider_reversal_cents as number,
+          attemptCount: open.data.attempt_count as number,
+          nextRetryAt: open.data.next_retry_at as string | null,
         });
       }
       return { ok: false as const, message: "A refund is already waiting for Stripe." };
@@ -597,8 +692,14 @@ async function submitRefund(input: {
   bookingId: string;
   refundCents: number;
   providerReversalCents: number;
+  attemptCount?: number;
+  nextRetryAt?: string | null;
 }) {
   const admin = createAdminClient();
+  const attemptCount = input.attemptCount ?? 0;
+  if (input.nextRetryAt && Date.parse(input.nextRetryAt) > Date.now()) {
+    return { ok: false as const, message: "The refund is waiting to be retried." };
+  }
   try {
     const refund = await getStripe().refunds.create(
       {
@@ -606,21 +707,33 @@ async function submitRefund(input: {
         amount: input.refundCents,
         metadata: { payment_id: input.payment.id, booking_id: input.bookingId, refund_id: input.refundId },
       },
-      { idempotencyKey: refundIdempotencyKey(input.refundId) },
+      { idempotencyKey: refundIdempotencyKey(input.refundId, attemptCount + 1) },
     );
     const stripeStatus = refund.status ?? "pending";
+    const plan = duplicateRefundPlan({
+      outcome: stripeStatus === "succeeded" || stripeStatus === "pending" || stripeStatus === "failed" || stripeStatus === "canceled" ? stripeStatus : "pending",
+      failureCode: refund.failure_reason ?? null,
+      attemptCount,
+      nowMs: Date.now(),
+    });
+    const storedStatus = plan.status === "refunded" ? "succeeded" : plan.status === "needs_review" ? "failed" : "pending";
     const recorded = await admin
       .from("refunds")
       .update({
         stripe_refund_id: refund.id,
-        status: stripeStatus === "succeeded" || stripeStatus === "failed" || stripeStatus === "canceled" ? stripeStatus : "pending",
-        confirmed_at: stripeStatus === "succeeded" ? new Date().toISOString() : null,
+        status: storedStatus,
+        attempt_count: plan.attemptCount,
+        next_retry_at: plan.nextRetryAtMs == null ? null : new Date(plan.nextRetryAtMs).toISOString(),
+        confirmed_at: storedStatus === "succeeded" ? new Date().toISOString() : null,
         failure_reason: refund.failure_reason,
       })
       .eq("id", input.refundId)
       .eq("status", "pending")
       .select("id")
       .maybeSingle();
+    if (recorded.error) {
+      return { ok: false as const, message: "The refund record could not be saved. The same refund will be retried." };
+    }
     if (recorded.data) {
       await ledger({
         paymentId: input.payment.id,
@@ -631,7 +744,17 @@ async function submitRefund(input: {
         note: `Stripe refund status: ${stripeStatus}.`,
       });
     }
-    if (stripeStatus === "succeeded" && recorded.data) {
+    if (plan.review && recorded.data) {
+      await ledger({
+        paymentId: input.payment.id,
+        bookingId: input.bookingId,
+        entryType: "refund_failed",
+        amountCents: input.refundCents,
+        stripeObjectId: refund.id,
+        note: `The refund needs an administrator. ${refund.failure_reason ?? "The retry limit was reached."}`.slice(0, 500),
+      });
+    }
+    if (storedStatus === "succeeded" && recorded.data) {
       const settlement = settleRefundAmounts({
         priorStatus: "pending",
         stripeStatus,
@@ -658,6 +781,19 @@ async function submitRefund(input: {
     const message = error instanceof Error ? error.message : "Stripe could not create the refund.";
     const kind = classifyStripeFailure(stripeFailure(error));
     if (kind === "uncertain") {
+      const plan = duplicateRefundPlan({
+        outcome: "uncertain",
+        failureCode: message,
+        attemptCount,
+        nowMs: Date.now(),
+      });
+      await admin
+        .from("refunds")
+        .update({
+          next_retry_at: plan.nextRetryAtMs == null ? null : new Date(plan.nextRetryAtMs).toISOString(),
+        })
+        .eq("id", input.refundId)
+        .eq("status", "pending");
       await ledger({
         paymentId: input.payment.id,
         bookingId: input.bookingId,
@@ -692,6 +828,8 @@ async function replayRefund(input: {
   bookingId: string;
   refundCents: number;
   providerReversalCents: number;
+  attemptCount?: number;
+  nextRetryAt?: string | null;
 }) {
   return submitRefund(input);
 }
@@ -896,6 +1034,13 @@ export async function payOutstanding(bookingId: string, customerId: string, emai
     .eq("id", bookingId)
     .maybeSingle();
   if (!booking.data || booking.data.customer_id !== customerId) throw new Error("unauthorized");
+  const reserved = await admin
+    .from("booking_appointments")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .in("status", ["held", "confirmed"])
+    .maybeSingle();
+  if (!reserved.data) throw new Error("Choose an appointment time before paying.");
   const payments = await admin.from("payments").select("id, status, milestone_id").eq("booking_id", bookingId);
   const rows = payments.data ?? [];
   if (rows.some((row) => row.status === "requires_payment" || row.status === "failed" || row.status === "canceled")) {

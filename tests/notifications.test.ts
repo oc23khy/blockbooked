@@ -400,7 +400,7 @@ describe("notification content safety", () => {
 
 describe("notification wiring", () => {
   it("sends only after the booking or payment write and keeps auth email on Supabase", () => {
-    assert.match(bookings, /await notifyBookingEvent\("booking_requested", inserted\.data\.id\)/);
+    assert.match(bookings, /await notifyBookingEvent\("booking_requested", bookingId\)/);
     assert.match(bookings, /if \(nextStatus === "accepted"\) await notifyBookingEvent\("booking_accepted", bookingId\)/);
     assert.match(bookings, /if \(nextStatus === "cancelled" \|\| nextStatus === "declined"\) await notifyBookingEvent\("booking_cancelled", bookingId\)/);
     const cancellation = bookings.indexOf('await notifyBookingEvent("booking_cancelled"');

@@ -89,14 +89,13 @@ export function BookingRequest({
 
   return (
     <form action={createBooking} className="rounded-3xl border border-line bg-card p-6">
-      <h2 className="font-serif text-3xl text-ink">Request a time</h2>
+      <h2 className="font-serif text-3xl text-ink">Request a quote</h2>
       <p className="mt-2 text-sm leading-6 text-ink/70">
-        Tell {providerName} when you need them.
-        {paymentsEnabled
-          ? " The price is taken from their listing, then Stripe test checkout collects it. The service is completed later with the customer's PIN."
-          : " No payment is collected until Stripe test mode is configured."}
+        Tell {providerName} what you need. A preferred time of day does not reserve an appointment.
+        A fixed-price visit has to be booked from an open time on the calendar.
       </p>
       <input type="hidden" name="providerId" value={providerId} />
+      <input type="hidden" name="paymentPlan" value="quote" />
       <div className="mt-5 grid gap-3">
         {services.length > 0 ? (
           <label className="block text-sm font-medium text-ink">
@@ -144,14 +143,6 @@ export function BookingRequest({
             <option>Evening</option>
           </select>
         </label>
-        {paymentsEnabled ? (
-          <fieldset className="grid gap-2 text-sm text-ink">
-            <legend className="font-medium">How to pay</legend>
-            <label className="flex gap-2"><input type="radio" name="paymentPlan" value="single" defaultChecked /> Pay the listed fixed price</label>
-            <label className="flex gap-2"><input type="radio" name="paymentPlan" value="quote" /> Ask the provider for a quote</label>
-            <label className="flex gap-2"><input type="radio" name="paymentPlan" value="milestones" /> Pay the listed price in milestones</label>
-          </fieldset>
-        ) : null}
         <label className="block text-sm font-medium text-ink">
           What should they know?
           <textarea
@@ -168,7 +159,7 @@ export function BookingRequest({
         type="submit"
         className="mt-5 w-full rounded-full bg-accent px-4 py-3 text-sm font-semibold text-white hover:bg-accent-dark"
       >
-        {paymentsEnabled ? "Continue to payment" : "Send booking request"}
+        Request a quote
       </button>
     </form>
   );

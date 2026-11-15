@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AppointmentCalendar, AppointmentConfirm } from "@/components/appointment-request";
 import { BookingRequest } from "@/components/booking-request";
+import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
+import { BOOKING_MAINTENANCE_MESSAGE } from "@/lib/bookings/maintenance-decision";
 import { bookingSurface } from "@/lib/scheduling/booking";
 import { loadPublicSchedule, mediaUrl } from "@/lib/scheduling/public";
 import { categoryName } from "@/lib/marketplace";
@@ -14,7 +16,7 @@ import { getSession } from "@/lib/session";
 
 type ProviderPageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; notice?: string; service?: string; starts?: string }>;
+  searchParams: Promise<{ error?: string; notice?: string; service?: string; starts?: string; reserve?: string }>;
 };
 
 export async function generateMetadata({ params }: ProviderPageProps): Promise<Metadata> {
@@ -35,6 +37,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
   const { id } = await params;
   const query = await searchParams;
   const formError = shownError(query.error) ?? undefined;
+  const bookingPaused = (await readBookingCreationDecision()) === "paused";
   const provider = await getVisibleProvider(id);
   if (!provider) notFound();
 
@@ -64,6 +67,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
     : [];
   const selectedService = schedule?.services.find((service) => service.id === query.service && service.durationMinutes);
   const selectedOffered = selectedService ? (schedule?.slotsByService[selectedService.id] ?? []).map((slot) => slot.start) : [];
+  const reserveBookingId = /^[0-9a-f-]{36}$/i.test(query.reserve ?? "") ? query.reserve : undefined;
   const surface = bookingSurface({
     offeredStarts,
     selectedStart: selectedService && query.starts && selectedOffered.includes(query.starts) ? query.starts : null,
@@ -206,6 +210,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
         <p className="mt-3 text-sm text-ink/55">
           A service with a fixed dollar price is charged at checkout. Completion still requires the customer PIN.
         </p>
+        {bookingPaused ? <p className="mt-4 text-sm font-medium text-accent-dark">{BOOKING_MAINTENANCE_MESSAGE}</p> : null}
         {schedule && !schedule.scheduleError && surface !== "fallback" ? (
           <AppointmentCalendar
             providerId={provider.id}
@@ -214,6 +219,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
             slotsByService={schedule.slotsByService}
             selectedServiceId={query.service ?? ""}
             signedIn={Boolean(session)}
+            reserveBookingId={reserveBookingId}
           />
         ) : null}
       </article>
@@ -262,12 +268,13 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
               signedIn={Boolean(session)}
               error={formError}
               notice={query.notice}
+              reserveBookingId={reserveBookingId}
             />
           ) : null}
           {surface === "fallback" && schedule && schedule.windows.length > 0 ? (
             <p className="mb-3 rounded-3xl border border-line bg-card p-4 text-sm leading-6 text-ink/75">
               {schedule.settings
-                ? "Booking rules and weekly hours are saved. Exact appointment times appear after a shown service with a duration of 15 to 480 minutes is saved."
+                ? "No exact appointment is open. You can request a quote, which does not reserve a time. A fixed-price visit needs an open appointment."
                 : "Weekly hours are saved. Exact appointment times also require saved booking rules and a shown service with a duration."}
             </p>
           ) : null}
@@ -285,7 +292,7 @@ export default async function ProviderPage({ params, searchParams }: ProviderPag
           ) : null}
           {surface === "calendar" && !existing ? (
             <p className="rounded-3xl border border-line bg-card p-6 text-sm leading-6 text-ink/75">
-              Choose an open time and click Book. Morning, afternoon, and evening requests are used only when this provider has no exact openings.
+              Choose an open time and click Book. A time of day does not reserve a fixed-price appointment.
             </p>
           ) : null}
           </>

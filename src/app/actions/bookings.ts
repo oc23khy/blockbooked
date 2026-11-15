@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { heldVisit } from "@/lib/scheduling/booking";
+import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
+import { bookingCreationBlock } from "@/lib/bookings/maintenance-decision";
+import { bookingCreationPlan, heldVisit, reservationOutcome } from "@/lib/scheduling/booking";
 import { loadPublicSchedule } from "@/lib/scheduling/public";
 import { redirect } from "next/navigation";
 import { invokeRetiredAdminAction } from "@/lib/admin/retired-actions";
@@ -14,7 +16,6 @@ import {
   type BookingStatus,
 } from "@/lib/booking-status";
 import { notifyBookingEvent } from "@/lib/notifications/dispatch";
-import { quoteFromCatalog } from "@/lib/payments/money";
 import { releaseProviderTransfer, requestRefund, startCheckout } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
 import { createAdminClient, isServiceRoleConfigured } from "@/lib/supabase/admin";
@@ -27,6 +28,10 @@ const windows = new Set(["Morning", "Afternoon", "Evening"]);
 export async function createBooking(formData: FormData) {
   const providerId = String(formData.get("providerId") ?? "");
   const session = await requireSession(providerId ? `/providers/${providerId}` : "/account");
+  const maintenance = bookingCreationBlock(await readBookingCreationDecision());
+  if (maintenance) {
+    redirect(`${providerId ? `/providers/${providerId}` : "/account"}?error=${encodeURIComponent(maintenance)}`);
+  }
   let preferredDate = String(formData.get("date") ?? "");
   let timeWindow = String(formData.get("window") ?? "");
   const notes = String(formData.get("notes") ?? "").trim();
@@ -35,11 +40,23 @@ export async function createBooking(formData: FormData) {
   const startsAtRaw = String(formData.get("startsAt") ?? "");
   const phone = String(formData.get("phone") ?? "").trim() || session.profile.phone;
   const returnPath = `/providers/${providerId}`;
+  const paymentPlan = String(formData.get("paymentPlan") ?? "single");
+  const schedule = providerId ? await loadPublicSchedule(providerId) : null;
+  const service = schedule?.services.find((item) => item.id === serviceId) ?? null;
+  const offeredStarts = service ? (schedule?.slotsByService[service.id] ?? []).map((slot) => slot.start) : [];
+  const plan = bookingCreationPlan({
+    startsAt: startsAtRaw,
+    paymentPlan,
+    pricingType: service?.pricingType ?? null,
+    durationMinutes: service?.durationMinutes ?? null,
+    offeredStarts,
+  });
+  if (plan.action === "reject") {
+    redirect(`${returnPath}?error=${encodeURIComponent(plan.message)}`);
+  }
 
-  let scheduledService: { id: string; duration_minutes: number; price_cents: number | null; pricing_type: string } | null = null;
-  if (startsAtRaw || serviceId) {
-    const schedule = await loadPublicSchedule(providerId);
-    const service = schedule?.services.find((item) => item.id === serviceId);
+  let scheduledService: { id: string; durationMinutes: number; priceCents: number | null } | null = null;
+  if (plan.action === "reserve") {
     try {
       const visit = heldVisit({
         serviceId,
@@ -47,16 +64,15 @@ export async function createBooking(formData: FormData) {
         startsAt: startsAtRaw,
         durationMinutes: service?.durationMinutes ?? 0,
         timeZone: schedule?.timeZone || "America/Chicago",
-        offeredStarts: service ? (schedule?.slotsByService[service.id] ?? []).map((slot) => slot.start) : [],
+        offeredStarts,
       });
       preferredDate = visit.preferredDate;
       timeWindow = visit.timeWindow;
       serviceName = visit.serviceName;
       scheduledService = {
         id: service?.id ?? serviceId,
-        duration_minutes: service?.durationMinutes ?? 0,
-        price_cents: service?.priceCents ?? null,
-        pricing_type: service?.pricingType ?? "quote",
+        durationMinutes: service?.durationMinutes ?? 0,
+        priceCents: service?.priceCents ?? null,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Choose one of the open appointment times.";
@@ -65,102 +81,93 @@ export async function createBooking(formData: FormData) {
   }
 
   if (!providerId || !preferredDate || !windows.has(timeWindow)) {
-    redirect(`${returnPath}?error=${encodeURIComponent("Add a date and a time of day.")}`);
+    redirect(`${returnPath}?error=${encodeURIComponent(plan.action === "quote-request" ? "Add a preferred date and time of day. This does not reserve an appointment." : "Choose an open appointment time.")}`);
   }
   if (!phone) {
     redirect(`${returnPath}?error=${encodeURIComponent("Add a phone number on your profile or in this request.")}`);
   }
 
   const paymentsReady = stripeTestKeyConfigured() && isServiceRoleConfigured();
-  const paymentPlan = String(formData.get("paymentPlan") ?? "single");
-  let amountCents: number | null = null;
-  if (scheduledService?.pricing_type === "fixed" || scheduledService?.pricing_type === "starting") {
-    amountCents = scheduledService.price_cents;
-  } else if (paymentsReady && paymentPlan !== "quote" && !startsAtRaw) {
-    const { data: provider } = await session.supabase
-      .from("providers")
-      .select("services, price_from")
-      .eq("id", providerId)
-      .maybeSingle();
-    const services = Array.isArray(provider?.services)
-      ? (provider.services as { name?: string; price?: string }[])
-      : [];
-    const selected = services.find((service) => service.name === serviceName);
-    const catalogPrice = selected?.price || provider?.price_from;
-    try {
-      amountCents = quoteFromCatalog(catalogPrice);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "This service does not have a fixed dollar price.";
-      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(message, "This service does not have a fixed dollar price."))}`);
-    }
+  const amountCents = plan.action === "reserve" && plan.charge ? scheduledService?.priceCents ?? null : null;
+  if (plan.action === "reserve" && plan.charge && amountCents == null) {
+    redirect(`${returnPath}?error=${encodeURIComponent("This service does not have a fixed dollar price.")}`);
   }
 
   const bookingReceipt = await reserveBookingRateLimit("createBooking", session.user.id, returnPath);
 
-  const inserted = await session.supabase
-    .from("booking_requests")
-    .insert({
-      customer_id: session.user.id,
-      provider_id: providerId,
-      preferred_date: preferredDate,
-      time_window: timeWindow,
-      notes,
-      contact_phone: phone,
-      service_name: serviceName,
-      status: "pending",
-      rate_limit_receipt: bookingReceipt,
-    })
-    .select("id")
-    .single();
-
-  if (inserted.error || !inserted.data) {
-    redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(inserted.error?.message, "The booking could not be saved."))}`);
-  }
-
-  if (scheduledService && startsAtRaw) {
-    const reserved = await session.supabase.from("booking_appointments").insert({
-      booking_id: inserted.data.id,
-      provider_id: providerId,
-      service_id: scheduledService.id,
-      starts_at: new Date(startsAtRaw).toISOString(),
-      ends_at: new Date(new Date(startsAtRaw).getTime() + scheduledService.duration_minutes * 60_000).toISOString(),
+  let bookingId = "";
+  if (plan.action === "reserve" && scheduledService && startsAtRaw) {
+    const reserved = await session.supabase.rpc("create_reserved_booking", {
+      target_provider: providerId,
+      preferred_day: preferredDate,
+      requested_window: timeWindow,
+      request_notes: notes,
+      request_phone: phone,
+      request_service: serviceName,
+      request_receipt: bookingReceipt,
+      target_service: scheduledService.id,
+      visit_start: new Date(startsAtRaw).toISOString(),
+      visit_end: new Date(new Date(startsAtRaw).getTime() + scheduledService.durationMinutes * 60_000).toISOString(),
     });
-    if (reserved.error) {
-      const cleanup = isServiceRoleConfigured() ? createAdminClient() : session.supabase;
-      await cleanup
-        .from("booking_requests")
-        .update({ status: "cancelled" })
-        .eq("id", inserted.data.id)
-        .eq("customer_id", session.user.id);
-      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(reserved.error.message, "That appointment time is no longer open."))}`);
+    if (reservationOutcome(!reserved.error && typeof reserved.data === "string") === "cancel-without-charge") {
+      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(reserved.error?.message, "That appointment time is no longer open. You were not charged."))}`);
     }
+    bookingId = reserved.data as string;
+  } else {
+    const inserted = await session.supabase
+      .from("booking_requests")
+      .insert({
+        customer_id: session.user.id,
+        provider_id: providerId,
+        preferred_date: preferredDate,
+        time_window: timeWindow,
+        notes,
+        contact_phone: phone,
+        service_name: serviceName,
+        status: "pending",
+        rate_limit_receipt: bookingReceipt,
+      })
+      .select("id")
+      .single();
+    if (inserted.error || !inserted.data) {
+      redirect(`${returnPath}?error=${encodeURIComponent(customerFacingError(inserted.error?.message, "The booking could not be saved."))}`);
+    }
+    bookingId = inserted.data.id;
   }
 
-  await notifyBookingEvent("booking_requested", inserted.data.id);
+  await notifyBookingEvent("booking_requested", bookingId);
 
   revalidatePath(returnPath);
   revalidatePath("/account");
   revalidatePath("/dashboard");
 
-  if (paymentsReady && (paymentPlan === "quote" || paymentPlan === "milestones")) {
+  if (paymentsReady && (plan.action === "quote-request" || paymentPlan === "quote" || paymentPlan === "milestones")) {
     const admin = (await import("@/lib/supabase/admin")).createAdminClient();
     await admin.from("booking_payment_plans").insert({
-      booking_id: inserted.data.id,
-      plan: paymentPlan,
+      booking_id: bookingId,
+      plan: paymentPlan === "milestones" ? "milestones" : "quote",
       agreed_amount_cents: paymentPlan === "milestones" ? amountCents : null,
     });
-    redirect(`${returnPath}?notice=${encodeURIComponent(paymentPlan === "quote" ? "Quote requested. The provider will set the price." : "Request sent. The provider will split the price into milestones.")}`);
+  }
+  if (plan.action === "quote-request") {
+    redirect(`${returnPath}?notice=${encodeURIComponent("Quote requested. This does not reserve an appointment.")}`);
+  }
+  if (paymentPlan === "quote") {
+    redirect(`${returnPath}?notice=${encodeURIComponent("The appointment is held. The provider will send a quote. You were not charged.")}`);
+  }
+  if (paymentPlan === "milestones") {
+    redirect(`${returnPath}?notice=${encodeURIComponent("The appointment is held. The provider will split the price into milestones.")}`);
   }
 
-  if (!paymentsReady || amountCents == null) {
-    redirect(`${returnPath}?notice=Request%20sent`);
+  if (!paymentsReady || plan.action !== "reserve" || !plan.charge || amountCents == null) {
+    redirect(`${returnPath}?notice=${encodeURIComponent("The appointment is held. No payment was collected.")}`);
   }
 
   await redirectIfRateLimited("checkout", session.user.id, "/account");
   let checkoutUrl: string;
   try {
     checkoutUrl = await startCheckout({
-      bookingId: inserted.data.id,
+      bookingId,
       customerId: session.user.id,
       providerId,
       amountCents,
@@ -175,6 +182,65 @@ export async function createBooking(formData: FormData) {
   redirect(checkoutUrl);
 }
 
+export async function reserveBookingAppointment(formData: FormData) {
+  const bookingId = String(formData.get("bookingId") ?? "");
+  const serviceId = String(formData.get("serviceId") ?? "");
+  const startsAt = String(formData.get("startsAt") ?? "");
+  const session = await requireSession(`/account`);
+  const maintenance = bookingCreationBlock(await readBookingCreationDecision());
+  if (maintenance) redirect(`/account?error=${encodeURIComponent(maintenance)}`);
+  await redirectIfRateLimited("createBooking", session.user.id, "/account");
+  const booking = await session.supabase
+    .from("booking_requests")
+    .select("id, status, customer_id, provider_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (!booking.data || booking.data.customer_id !== session.user.id || booking.data.status !== "pending") {
+    redirect("/account?error=Only%20a%20pending%20quote%20can%20reserve%20an%20appointment.");
+  }
+  const existing = await session.supabase
+    .from("booking_appointments")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .in("status", ["held", "confirmed"])
+    .maybeSingle();
+  if (existing.data) redirect("/account?notice=This%20request%20already%20holds%20an%20appointment.");
+  const schedule = await loadPublicSchedule(booking.data.provider_id);
+  const service = schedule?.services.find((item) => item.id === serviceId);
+  const offeredStarts = service ? (schedule?.slotsByService[service.id] ?? []).map((slot) => slot.start) : [];
+  const plan = bookingCreationPlan({
+    startsAt,
+    paymentPlan: "quote",
+    pricingType: service?.pricingType ?? "quote",
+    durationMinutes: service?.durationMinutes ?? null,
+    offeredStarts,
+  });
+  if (plan.action !== "reserve") {
+    redirect("/account?error=Choose%20one%20of%20the%20open%20appointment%20times.%20You%20were%20not%20charged.");
+  }
+  const visit = heldVisit({
+    serviceId,
+    serviceName: service?.name ?? "",
+    startsAt,
+    durationMinutes: service?.durationMinutes ?? 0,
+    timeZone: schedule?.timeZone || "America/Chicago",
+    offeredStarts,
+  });
+  const reserved = await session.supabase.rpc("attach_booking_appointment", {
+    target_booking: bookingId,
+    target_service: serviceId,
+    visit_start: visit.startsAt,
+    visit_end: visit.endsAt,
+  });
+  if (reservationOutcome(!reserved.error) === "cancel-without-charge") {
+    redirect("/account?error=That%20appointment%20time%20is%20no%20longer%20open.%20The%20quote%20was%20not%20charged%20or%20accepted.");
+  }
+  revalidatePath("/account");
+  revalidatePath("/dashboard");
+  revalidatePath(`/providers/${booking.data.provider_id}`);
+  redirect("/account?notice=Appointment%20held%20for%20this%20quote.%20You%20were%20not%20charged.");
+}
+
 export async function updateBookingStatus(formData: FormData) {
   const session = await requireSession("/account");
   const bookingId = String(formData.get("bookingId") ?? "");
@@ -183,7 +249,7 @@ export async function updateBookingStatus(formData: FormData) {
 
   const { data: booking } = await session.supabase
     .from("booking_requests")
-    .select("id, status, customer_id, provider_id")
+    .select("id, status, customer_id, provider_id, appointment_required")
     .eq("id", bookingId)
     .maybeSingle();
 
@@ -212,7 +278,16 @@ export async function updateBookingStatus(formData: FormData) {
     redirect(`${returnTo}?error=${encodeURIComponent("You cannot change this booking to that status.")}`);
   }
 
-  if (nextStatus === "accepted") {
+  if (nextStatus === "accepted" && booking.appointment_required !== false) {
+    const reserved = await session.supabase
+      .from("booking_appointments")
+      .select("id")
+      .eq("booking_id", bookingId)
+      .eq("status", "held")
+      .maybeSingle();
+    if (reserved.error || !reserved.data) {
+      redirect(`${returnTo}?error=${encodeURIComponent("Accepting requires a reserved appointment. A time of day is not an appointment.")}`);
+    }
     const payment = await session.supabase
       .from("payments")
       .select("status, amount_cents, refunded_cents")

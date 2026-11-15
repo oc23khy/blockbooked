@@ -1,3 +1,4 @@
+import { savedChargeResult } from "@/lib/payments/lifecycle";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { LedgerDraft, NormalizedStripeEvent, PaymentPatch, PaymentSnapshot, PaymentStore } from "@/lib/payments/events";
 
@@ -87,9 +88,13 @@ export function createPaymentStore(): PaymentStore {
     },
     async savePayment(patch: PaymentPatch) {
       const { id, ...rest } = patch;
+      const current = await admin.from("payments").select("payment_intent_id").eq("id", id).maybeSingle();
+      const storedIntent = (current.data?.payment_intent_id as string | null) ?? null;
       const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (rest.status) update.status = rest.status;
-      if (rest.paymentIntentId !== undefined) update.payment_intent_id = rest.paymentIntentId;
+      if (rest.paymentIntentId !== undefined && (!storedIntent || storedIntent === rest.paymentIntentId)) {
+        update.payment_intent_id = rest.paymentIntentId;
+      }
       if (rest.chargeId !== undefined) update.charge_id = rest.chargeId;
       if (rest.transferId !== undefined) update.transfer_id = rest.transferId;
       if ("transferStatus" in rest && rest.transferStatus) update.transfer_status = rest.transferStatus;
@@ -132,6 +137,53 @@ export function createPaymentStore(): PaymentStore {
           updated_at: new Date().toISOString(),
         })
         .eq("stripe_account_id", input.stripeAccountId);
+    },
+    async claimFirstCharge(input) {
+      const claim = await admin
+        .from("payments")
+        .update({
+          status: "succeeded",
+          payment_intent_id: input.paymentIntentId,
+          ...(input.chargeId ? { charge_id: input.chargeId } : {}),
+          ...(typeof input.stripeFeeCents === "number" ? { stripe_fee_cents: input.stripeFeeCents } : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", input.paymentId)
+        .is("payment_intent_id", null)
+        .select("id");
+      if (claim.error) throw new Error(claim.error.message);
+      if (claim.data && claim.data.length > 0) return "recorded" as const;
+      const current = await admin.from("payments").select("payment_intent_id").eq("id", input.paymentId).maybeSingle();
+      if (!input.paymentIntentId || current.data?.payment_intent_id === input.paymentIntentId) {
+        if (typeof input.stripeFeeCents === "number") {
+          await admin.from("payments").update({ stripe_fee_cents: input.stripeFeeCents }).eq("id", input.paymentId);
+        }
+        return "recorded" as const;
+      }
+      return "duplicate" as const;
+    },
+    async noteDuplicateCharge(input) {
+      const saved = await admin.from("payment_extra_charges").upsert(
+        {
+          payment_id: input.paymentId,
+          booking_id: input.bookingId,
+          checkout_session_id: input.checkoutSessionId,
+          payment_intent_id: input.paymentIntentId,
+          charge_id: input.chargeId,
+          amount_cents: input.amountCents,
+          status: "refund_pending",
+        },
+        { onConflict: "payment_intent_id", ignoreDuplicates: true },
+      ).select("id");
+      const existing = saved.data && saved.data.length > 0
+        ? { data: saved.data[0], error: null }
+        : await admin.from("payment_extra_charges").select("id").eq("payment_intent_id", input.paymentIntentId).maybeSingle();
+      const result = savedChargeResult({
+        error: saved.error?.message ?? existing.error?.message ?? null,
+        savedId: saved.data?.[0]?.id ?? null,
+        existingId: existing.data?.id ?? null,
+      });
+      if (!result.ok) throw new Error(result.message);
     },
     async markRefund(stripeRefundId, status) {
       await admin

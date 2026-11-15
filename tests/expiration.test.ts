@@ -11,6 +11,8 @@ import {
   displayedDeadline,
   earlierDeadline,
   expirationRefundPlan,
+  unpaidHoldAllowed,
+  UNPAID_HOLD_MS,
   expirationRpcBookingId,
   resolvePendingRace,
 } from "../src/lib/scheduling/expiration.ts";
@@ -28,6 +30,10 @@ const expirationFix = readFileSync(
   new URL("../supabase/migrations/20261110290000_expiration_booking_id.sql", import.meta.url),
   "utf8",
 );
+const holdLifecycle = readFileSync(
+  new URL("../supabase/migrations/20261114050000_booking_hold_lifecycle.sql", import.meta.url),
+  "utf8",
+);
 
 describe("acceptance deadline", () => {
   it("expires 24 hours after the request or when the appointment starts, whichever is sooner", () => {
@@ -38,6 +44,21 @@ describe("acceptance deadline", () => {
     assert.equal(acceptanceDeadline(created, later).toISOString(), new Date(created.getTime() + ACCEPTANCE_WINDOW_MS).toISOString());
     assert.equal(acceptanceDeadline(created, null).toISOString(), new Date(created.getTime() + ACCEPTANCE_WINDOW_MS).toISOString());
     assert.equal(earlierDeadline(new Date(created.getTime() + ACCEPTANCE_WINDOW_MS).toISOString(), soon.toISOString()), soon.toISOString());
+    const stored = new Date(created.getTime() + ACCEPTANCE_WINDOW_MS).toISOString();
+    const unpaid = displayedDeadline(stored, later.toISOString(), false, created.toISOString(), false);
+    assert.equal(unpaid, new Date(created.getTime() + UNPAID_HOLD_MS).toISOString());
+    assert.equal(displayedDeadline(stored, later.toISOString(), false, created.toISOString(), true), stored);
+    assert.equal(unpaidHoldAllowed(2), false);
+    assert.equal(unpaidHoldAllowed(1), true);
+    assert.match(holdLifecycle, /interval '30 minutes'/);
+    assert.match(holdLifecycle, /status in \('expired', 'cancelled', 'declined'\)/);
+    assert.match(holdLifecycle, /create_reserved_booking/);
+    assert.match(holdLifecycle, /enforce_unpaid_hold_limit/);
+    assert.match(holdLifecycle, /pg_advisory_xact_lock\(hashtext\(customer::text\), 440500\)/);
+    assert.match(holdLifecycle, /grant select, insert, update on table public.payment_extra_charges to service_role/);
+    assert.match(holdLifecycle, /needs_review/);
+    assert.match(holdLifecycle, /payment_extra_charges/);
+    assert.doesNotMatch(holdLifecycle, /outreach_send_settings|resend/i);
   });
 });
 
@@ -199,6 +220,9 @@ describe("expiration refunds", () => {
     assert.equal(expirationRefundPlan({ ...base, openRefundId: "refund-1" }), "replay");
     assert.equal(expirationRefundPlan({ ...base, refundedCents: 5000 }), "skip");
     assert.equal(expirationRefundPlan({ ...base, bookingStatus: "accepted" }), "skip");
+    assert.equal(expirationRefundPlan({ ...base, bookingStatus: "completed" }), "skip");
+    assert.equal(expirationRefundPlan({ ...base, bookingStatus: "cancelled" }), "create");
+    assert.equal(expirationRefundPlan({ ...base, bookingStatus: "declined" }), "create");
     assert.equal(expirationRefundPlan({ ...base, paymentStatus: "requires_payment" }), "skip");
     assert.equal(expirationRefundPlan({ ...base, paymentStatus: "partially_refunded", refundedCents: 1000 }), "create");
     assert.equal(

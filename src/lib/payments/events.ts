@@ -1,3 +1,4 @@
+import { firstChargeDecision } from "./lifecycle.ts";
 import { nextRecordedTransferReversal } from "./money.ts";
 import { nextStripeFeeCents } from "./stripe-fee.ts";
 
@@ -61,6 +62,20 @@ export interface PaymentStore {
     disabledReason: string | null;
   }): Promise<void>;
   markRefund(stripeRefundId: string, status: string): Promise<void>;
+  claimFirstCharge(input: {
+    paymentId: string;
+    paymentIntentId: string | null;
+    chargeId: string | null;
+    stripeFeeCents: number | null;
+  }): Promise<"recorded" | "duplicate">;
+  noteDuplicateCharge(input: {
+    paymentId: string;
+    bookingId: string;
+    paymentIntentId: string;
+    chargeId: string | null;
+    checkoutSessionId: string | null;
+    amountCents: number;
+  }): Promise<void>;
 }
 
 function text(value: unknown) {
@@ -79,7 +94,15 @@ function metadata(object: Record<string, unknown>) {
 
 export async function applyStripeEvent(event: NormalizedStripeEvent, store: PaymentStore) {
   const delivery = await store.claimEvent(event);
-  if (delivery === "skip") return { status: "duplicate" as const };
+  if (delivery === "skip") return { status: "duplicate" as const, duplicatePaymentIntents: [] as string[] };
+  const duplicatePaymentIntents: string[] = [];
+  const observed: PaymentStore = {
+    ...store,
+    async noteDuplicateCharge(input) {
+      duplicatePaymentIntents.push(input.paymentIntentId);
+      await store.noteDuplicateCharge(input);
+    },
+  };
 
   try {
     if (event.livemode) {
@@ -92,16 +115,16 @@ export async function applyStripeEvent(event: NormalizedStripeEvent, store: Paym
         note: "A live-mode Stripe event was ignored. BlockBooked is in test mode.",
       });
       await store.finishEvent(event.id, "ignored");
-      return { status: "ignored" as const };
+      return { status: "ignored" as const, duplicatePaymentIntents };
     }
 
-    await dispatchEvent(event, store);
+    await dispatchEvent(event, observed);
     await store.finishEvent(event.id, "processed");
-    return { status: "processed" as const };
+    return { status: "processed" as const, duplicatePaymentIntents };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Webhook processing failed.";
     await store.finishEvent(event.id, "failed", message.slice(0, 500));
-    return { status: "failed" as const };
+    return { status: "failed" as const, duplicatePaymentIntents };
   }
 }
 
@@ -109,6 +132,19 @@ async function dispatchEvent(event: NormalizedStripeEvent, store: PaymentStore) 
   const object = event.object;
   if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
     await applyCheckoutCompleted(object, store);
+    return;
+  }
+  if (event.type === "payment_intent.succeeded") {
+    await applyCheckoutCompleted(
+      {
+        ...object,
+        amount_total: object.amount,
+        currency: object.currency,
+        payment_status: "paid",
+        payment_intent: object.id,
+      },
+      store,
+    );
     return;
   }
   if (event.type === "checkout.session.expired") {
@@ -195,10 +231,46 @@ async function dispatchEvent(event: NormalizedStripeEvent, store: PaymentStore) 
 
 async function applyCheckoutCompleted(object: Record<string, unknown>, store: PaymentStore) {
   const payment = await findFromMetadata(object, store, text(object.id));
-  if (!payment) return;
   const amount = integer(object.amount_total);
   const paid = object.payment_status === "paid";
-  if (!paid || amount !== payment.amountCents || object.currency !== "usd") {
+  if (!payment) {
+    if (paid) throw new Error("A successful charge did not match a recorded payment.");
+    return;
+  }
+  const fee = nonNegativeInteger(object.stripe_fee_cents);
+  const incomingIntent = text(object.payment_intent);
+  const matched = paid && amount === payment.amountCents && object.currency === "usd";
+  if (paid && !matched) {
+    if (!incomingIntent || amount == null || amount <= 0) {
+      await store.addLedger({
+        paymentId: payment.id,
+        bookingId: payment.bookingId,
+        entryType: "payment_mismatch",
+        amountCents: amount ?? 0,
+        stripeObjectId: text(object.id),
+        note: "A successful charge did not match the stored payment and could not be refunded yet.",
+      });
+      throw new Error("A successful charge did not match a recorded payment.");
+    }
+    await store.noteDuplicateCharge({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      paymentIntentId: incomingIntent,
+      chargeId: text(object.charge_id),
+      checkoutSessionId: object.object === "payment_intent" ? null : text(object.id),
+      amountCents: amount,
+    });
+    await store.addLedger({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      entryType: "payment_mismatch",
+      amountCents: amount,
+      stripeObjectId: incomingIntent,
+      note: "A successful charge did not match the stored payment. It was recorded for refund.",
+    });
+    return;
+  }
+  if (!matched) {
     await store.addLedger({
       paymentId: payment.id,
       bookingId: payment.bookingId,
@@ -209,18 +281,54 @@ async function applyCheckoutCompleted(object: Record<string, unknown>, store: Pa
     });
     return;
   }
-  const fee = nonNegativeInteger(object.stripe_fee_cents);
-  if (payment.status === "succeeded") {
+  if (firstChargeDecision(payment, incomingIntent) === "duplicate" && incomingIntent) {
+    await store.noteDuplicateCharge({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      paymentIntentId: incomingIntent,
+      chargeId: text(object.charge_id),
+      checkoutSessionId: text(object.id),
+      amountCents: amount ?? payment.amountCents,
+    });
+    await store.addLedger({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      entryType: "duplicate_charge",
+      amountCents: amount ?? payment.amountCents,
+      stripeObjectId: incomingIntent,
+      note: "A second successful charge was recorded for refund. The original payment was not replaced.",
+    });
+    return;
+  }
+  if (payment.status === "succeeded" && (!incomingIntent || incomingIntent === payment.paymentIntentId)) {
     await recordProcessingFee(payment, fee, store);
     return;
   }
-  await store.savePayment({
-    id: payment.id,
-    status: "succeeded",
-    paymentIntentId: text(object.payment_intent) ?? payment.paymentIntentId,
-    chargeId: text(object.charge_id) ?? payment.chargeId,
-    ...(fee == null ? {} : { stripeFeeCents: fee }),
+  const claimed = await store.claimFirstCharge({
+    paymentId: payment.id,
+    paymentIntentId: incomingIntent,
+    chargeId: text(object.charge_id),
+    stripeFeeCents: fee,
   });
+  if (claimed === "duplicate" && incomingIntent) {
+    await store.noteDuplicateCharge({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      paymentIntentId: incomingIntent,
+      chargeId: text(object.charge_id),
+      checkoutSessionId: text(object.id),
+      amountCents: amount ?? payment.amountCents,
+    });
+    await store.addLedger({
+      paymentId: payment.id,
+      bookingId: payment.bookingId,
+      entryType: "duplicate_charge",
+      amountCents: amount ?? payment.amountCents,
+      stripeObjectId: incomingIntent,
+      note: "A second successful charge was recorded for refund. The original payment was not replaced.",
+    });
+    return;
+  }
   await store.addLedger({
     paymentId: payment.id,
     bookingId: payment.bookingId,

@@ -6,6 +6,9 @@ import { customerFacingError, shownError } from "../src/lib/public-error.ts";
 import { contentSecurityPolicy, securityHeaderList } from "../src/lib/security-headers.ts";
 
 const scheduleAction = readFileSync(new URL("../src/app/actions/schedule.ts", import.meta.url), "utf8");
+const accountMigration = readFileSync(new URL("../supabase/migrations/20261109180000_init.sql", import.meta.url), "utf8");
+const bookingDatabaseTest = readFileSync(new URL("./booking-db.integration.test.ts", import.meta.url), "utf8");
+const providerReview = readFileSync(new URL("../src/app/actions/providers.ts", import.meta.url), "utf8");
 const nextConfig = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
 const storageMigration = readFileSync(
   new URL("../supabase/migrations/20261110260000_provider_schedules.sql", import.meta.url),
@@ -83,6 +86,27 @@ describe("provider image contents", () => {
     assert.doesNotMatch(scheduleAction, /contentType: file\.type/);
     assert.match(scheduleAction, /unstable_rethrow/);
     assert.match(scheduleAction, /The photo could not be saved/);
+  });
+});
+
+describe("provider ownership", () => {
+  it("rejects a provider profile owned by another user", () => {
+    const protection = accountMigration.slice(accountMigration.indexOf("function public.protect_provider_row()"));
+    assert.match(protection, /not public\.is_admin\(\)/);
+    assert.match(protection, /new\.owner_id is distinct from auth\.uid\(\)/);
+    assert.match(protection, /You can only create your own business profile/);
+    assert.match(protection, /new\.status := 'pending'/);
+    assert.match(accountMigration, /owner_id = auth\.uid\(\) or public\.is_admin\(\)/);
+    assert.match(providerReview, /session\.profile\.role !== "admin"/);
+    assert.match(providerReview, /status: decision, review_note: reviewNote/);
+    assert.match(bookingDatabaseTest, /select public\.become_provider\(\)/);
+    assert.match(bookingDatabaseTest, /set role authenticated/);
+    assert.match(bookingDatabaseTest, /set status = 'approved'/);
+    assert.match(bookingDatabaseTest, /You can only create your own business profile/);
+    assert.match(bookingDatabaseTest, /booking-admin@example\.com/);
+    assert.match(bookingDatabaseTest, /roleOf\(customer\) !== "customer"/);
+    assert.doesNotMatch(bookingDatabaseTest, /disable trigger providers_protect_row/);
+    assert.doesNotMatch(bookingDatabaseTest, /booking-customer@example\.com'[\s\S]{0,240}role = 'admin'/);
   });
 });
 

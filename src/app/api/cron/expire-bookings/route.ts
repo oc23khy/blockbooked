@@ -1,4 +1,5 @@
 import { cronAuthorized, expireDueBookings } from "@/lib/bookings/expire";
+import { refundDuplicateCharges } from "@/lib/payments/service";
 import { retryDueNotifications } from "@/lib/notifications/dispatch";
 import { customerFacingError } from "@/lib/public-error";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -19,6 +20,11 @@ async function run(request: Request) {
     // Expiration and refunds still run when old counters cannot be removed.
   }
   const result = await expireDueBookings();
+  try {
+    await refundDuplicateCharges();
+  } catch {
+    // A duplicate charge stays refund_pending until the next run.
+  }
   let notifications = { checked: 0, sent: 0, failed: 0, skipped: 0 };
   try {
     notifications = await retryDueNotifications();

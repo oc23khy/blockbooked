@@ -11,7 +11,7 @@ Docker is installed on this machine, but the Docker engine was not running when 
 - Local Supabase: `127.0.0.1:54322`, database `postgres`
 - Existing disposable Postgres: `127.0.0.1:54329`, database `blockbooked_booking_integration`
 
-Any `supabase.co` host, any other port, any other database name, and any connection whose host is not `127.0.0.1` or `localhost` is refused. After connecting, the database name must match that URL and `supabase_migrations.schema_migrations` must contain exactly the local migration versions, including `20261114035000` before `20261114040000` and `20261114050000`. Docker may report an internal address such as `172.19.0.2`; that address is not accepted by itself. A public server address is refused even when the migration list matches.
+Any `supabase.co` host, any other port, any other database name, and any connection whose host is not `127.0.0.1` or `localhost` is refused. After connecting, the database name must match that URL and `supabase_migrations.schema_migrations` must contain exactly the local migration versions, including `20261114035000` before `20261114040000`, `20261114050000`, and `20261114060000`. Docker may report an internal address such as `172.19.0.2`; that address is not accepted by itself. A public server address is refused even when the migration list matches.
 
 ### Local Supabase
 

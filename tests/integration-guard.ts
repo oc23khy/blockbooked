@@ -33,6 +33,7 @@ export const LOCAL_MIGRATION_VERSIONS = [
   "20261114035000",
   "20261114040000",
   "20261114050000",
+  "20261114060000",
 ];
 
 export function assertDisposableDatabaseUrl(url: string, productionUrl?: string) {

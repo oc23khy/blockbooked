@@ -55,7 +55,17 @@ The same run checks the retry decision for a timeout and the review decision for
 
 To watch the result, open the Stripe Dashboard, switch to test mode, and search the metadata `blockbooked_integration`. Those charges should be refunded after the test.
 
-Checkout session reuse, an HTTP webhook delivery, and a late payment after cancellation still need the local database and the running app together. Those paths are covered by the in-memory unit tests, not by this Stripe script. No Dashboard click is required.
+Checkout session reuse and a late payment after cancellation are covered by the in-memory unit tests. The HTTP webhook replay is a separate local test. It does not call Stripe or send mail.
+
+## Local webhook replay
+
+Start the local Supabase stack first. The database at `127.0.0.1:54322/postgres` must contain no users, bookings, or payments. The test refuses any other database, reads the local API URL from `npx supabase status`, and blocks every network call that is not to `127.0.0.1` or `localhost`. It signs one `checkout.session.completed` event with a local webhook secret, posts that same event through the webhook handler twice, cancels and refunds the local booking, and posts the event again. It uses a fake `sk_test_` value and does not create a Stripe charge.
+
+From the repository root:
+
+`node --experimental-strip-types --import ./tests/register-alias.mjs --test tests/booking-webhook.integration.test.ts`
+
+The test removes its own fixtures. It is not part of `npm test`.
 
 ## What `npm test` covers
 

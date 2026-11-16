@@ -77,12 +77,13 @@ describe("integration environment guards", () => {
       migrations: LOCAL_MIGRATION_VERSIONS,
     });
     assert.equal(connected.addressClass, "private");
-    assert.deepEqual(LOCAL_MIGRATION_VERSIONS.slice(-5), [
+    assert.deepEqual(LOCAL_MIGRATION_VERSIONS.slice(-6), [
       "20261114030000",
       "20261114035000",
       "20261114040000",
       "20261114050000",
       "20261114060000",
+      "20261116010000",
     ]);
     assert.equal(
       assertConnectedLocalDatabase({

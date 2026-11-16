@@ -109,14 +109,21 @@ export default async function AccountPage({
   const payments = new Map(paymentRows.map((payment) => [payment.booking_id, payment]));
   const appointmentQuery =
     bookingIds.length > 0
-      ? await supabase.from("booking_appointments").select("booking_id, starts_at").in("booking_id", bookingIds)
+      ? await supabase.from("booking_appointments").select("booking_id, starts_at, status").in("booking_id", bookingIds)
       : { data: [], error: null };
-  const appointmentStarts = new Map(
-    ((appointmentQuery.error ? [] : appointmentQuery.data) ?? []).map((row) => [
-      row.booking_id as string,
-      row.starts_at as string,
-    ]),
-  );
+  const appointments = new Map<string, { startsAt: string; status: string }>();
+  for (const row of (appointmentQuery.error ? [] : appointmentQuery.data ?? []) as {
+    booking_id: string;
+    starts_at: string;
+    status: string;
+  }[]) {
+    const current = appointments.get(row.booking_id);
+    const active = row.status === "confirmed" || row.status === "held";
+    if (!active) continue;
+    if (!current || (row.status === "confirmed" && current.status !== "confirmed")) {
+      appointments.set(row.booking_id, { startsAt: row.starts_at, status: row.status });
+    }
+  }
   const rescheduleQuery =
     bookingIds.length > 0
       ? await supabase
@@ -169,12 +176,13 @@ export default async function AccountPage({
       paymentPlan: plans.get(booking.id) ?? null,
       quoteAmountCents: quotes.get(booking.id)?.amount_cents ?? null,
       quoteStatus: quotes.get(booking.id)?.status ?? null,
-      appointmentStart: appointmentStarts.get(booking.id) ?? null,
+      appointmentStart: appointments.get(booking.id)?.startsAt ?? null,
+      appointmentStatus: appointments.get(booking.id)?.status ?? null,
       providerId: booking.provider_id,
       timeZone: related?.timezone ?? "America/Chicago",
       acceptanceDeadline: displayedDeadline(
         booking.acceptance_deadline ?? null,
-        appointmentStarts.get(booking.id) ?? null,
+        appointments.get(booking.id)?.startsAt ?? null,
         Boolean(booking.expiration_grace),
         booking.created_at ?? null,
         payments.get(booking.id)?.status === "succeeded" || payments.get(booking.id)?.status === "partially_refunded",
@@ -268,7 +276,7 @@ export default async function AccountPage({
       <section>
         <h2 className="font-serif text-3xl text-ink">Booking history</h2>
         <p className="mt-2 text-sm text-ink/70">
-          Pending requests can be cancelled here. After a provider accepts, your completion PIN appears on that booking.
+          Pending requests can be cancelled here. An accepted booking can be cancelled for a full refund when its confirmed appointment starts at least 24 hours from now. After a provider accepts, your completion PIN appears on that booking.
           Share it only after the service is finished to your satisfaction.
         </p>
         {error || pinQuery.error ? (

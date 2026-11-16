@@ -8,11 +8,14 @@ import { loadPublicSchedule } from "@/lib/scheduling/public";
 import { redirect } from "next/navigation";
 import { invokeRetiredAdminAction } from "@/lib/admin/retired-actions";
 import {
+  ACCEPTED_CANCELLATION_BLOCKED,
+  acceptedCancellationDecision,
   bookingStatuses,
   canChangeBookingStatus,
   normalizeBookingStatus,
   paidAcceptanceAllowed,
   pinAttemptMessage,
+  refundableCancellationPayments,
   type BookingStatus,
 } from "@/lib/booking-status";
 import { notifyBookingEvent } from "@/lib/notifications/dispatch";
@@ -267,14 +270,35 @@ export async function updateBookingStatus(formData: FormData) {
 
   const isCustomer = booking.customer_id === session.user.id;
   const isProvider = listing?.owner_id === session.user.id;
-  const allowed = canChangeBookingStatus({
-    isCustomer,
-    isProvider,
-    currentStatus: normalizeBookingStatus(booking.status),
-    nextStatus,
-  });
-
-  if (!allowed) {
+  const acceptedCancellation =
+    nextStatus === "cancelled" && isCustomer && normalizeBookingStatus(booking.status) === "accepted";
+  if (acceptedCancellation) {
+    const visit = await session.supabase
+      .from("booking_appointments")
+      .select("status, starts_at")
+      .eq("booking_id", bookingId)
+      .eq("status", "confirmed")
+      .order("starts_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const decision = acceptedCancellationDecision({
+      isBookingOwner: true,
+      currentStatus: booking.status,
+      appointmentStatus: visit.data?.status ?? null,
+      startsAt: visit.data?.starts_at ?? null,
+      nowMs: Date.now(),
+    });
+    if (decision !== "full_refund") {
+      redirect(`${returnTo}?error=${encodeURIComponent(ACCEPTED_CANCELLATION_BLOCKED)}`);
+    }
+  } else if (
+    !canChangeBookingStatus({
+      isCustomer,
+      isProvider,
+      currentStatus: normalizeBookingStatus(booking.status),
+      nextStatus,
+    })
+  ) {
     redirect(`${returnTo}?error=${encodeURIComponent("You cannot change this booking to that status.")}`);
   }
 
@@ -331,9 +355,12 @@ export async function updateBookingStatus(formData: FormData) {
   revalidatePath(`/providers/${booking.provider_id}`);
 
   if ((nextStatus === "declined" || nextStatus === "cancelled") && stripeTestKeyConfigured() && isServiceRoleConfigured()) {
-    const listed = await createAdminClient().from("payments").select("id, status").eq("booking_id", bookingId);
-    const targets = ((listed.data ?? []) as { id: string; status: string }[]).filter(
-      (row) => row.status === "succeeded" || row.status === "partially_refunded",
+    const listed = await createAdminClient()
+      .from("payments")
+      .select("id, status, amount_cents, refunded_cents")
+      .eq("booking_id", bookingId);
+    const targets = refundableCancellationPayments(
+      (listed.data ?? []) as { id: string; status: string; amount_cents: number; refunded_cents: number }[],
     );
     for (const target of targets) {
       const refund = await requestRefund({

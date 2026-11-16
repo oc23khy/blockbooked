@@ -6,7 +6,7 @@ import { payoutLabel } from "@/lib/payments/guards";
 import { formatUsd } from "@/lib/payments/money";
 import { PRICE_ADJUSTMENT_MESSAGE } from "@/lib/scheduling/reschedule";
 import { BookingStatusBadge } from "@/components/booking-status-badge";
-import { customerCanCancel, providerActions, providerCanVerifyPin } from "@/lib/booking-status";
+import { acceptedCancellationDecision, customerCanCancel, providerActions, providerCanVerifyPin } from "@/lib/booking-status";
 
 export type BookingView = {
   id: string;
@@ -31,6 +31,7 @@ export type BookingView = {
   quoteStatus?: string | null;
   needsPayment?: boolean;
   appointmentStart?: string | null;
+  appointmentStatus?: string | null;
   providerId?: string | null;
   timeZone?: string | null;
   acceptanceDeadline?: string | null;
@@ -61,6 +62,16 @@ export function BookingCard({
 }) {
   const actions = audience === "provider" ? providerActions(booking.status) : [];
   const canCancel = audience === "customer" && customerCanCancel(booking.status);
+  const acceptedCancellation =
+    audience === "customer"
+      ? acceptedCancellationDecision({
+          isBookingOwner: true,
+          currentStatus: booking.status,
+          appointmentStatus: booking.appointmentStatus ?? null,
+          startsAt: booking.appointmentStart ?? null,
+          nowMs: Date.now(),
+        })
+      : "unavailable";
 
   return (
     <li id={`booking-${booking.id}`} className="rounded-3xl border border-line bg-card px-5 py-4">
@@ -193,6 +204,23 @@ export function BookingCard({
         <Link href={`/account/reschedule/${booking.id}`} className="mt-4 inline-flex rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
           Request a new time
         </Link>
+      ) : null}
+      {acceptedCancellation === "full_refund" ? (
+        <form action={updateBookingStatus} className="mt-4 grid gap-2">
+          <p className="text-sm leading-6 text-ink/75">
+            This accepted appointment starts at least 24 hours from now. Cancelling releases the time and refunds every confirmed payment that still has a balance.
+          </p>
+          <input type="hidden" name="bookingId" value={booking.id} />
+          <input type="hidden" name="returnTo" value="/account" />
+          <button name="status" value="cancelled" className="w-fit rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink">
+            Cancel booking — full refund
+          </button>
+        </form>
+      ) : null}
+      {audience === "customer" && booking.status === "accepted" && acceptedCancellation !== "full_refund" ? (
+        <p className="mt-4 text-sm leading-6 text-ink/75">
+          An accepted booking can be cancelled for a full refund only when a confirmed appointment starts at least 24 hours from now. This booking cannot be cancelled here.
+        </p>
       ) : null}
       {actions.length > 0 || canCancel ? (
         <form action={updateBookingStatus} className="mt-4 flex flex-wrap gap-2">

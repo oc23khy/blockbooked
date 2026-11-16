@@ -17,6 +17,37 @@ export function customerCanCancel(status: string) {
   return normalizeBookingStatus(status) === "pending";
 }
 
+export const ACCEPTED_CANCELLATION_NOTICE_MS = 24 * 60 * 60 * 1000;
+
+export const ACCEPTED_CANCELLATION_BLOCKED =
+  "An accepted booking can be cancelled for a full refund only when a confirmed appointment starts at least 24 hours from now.";
+
+// The database trigger is authoritative. This uses the same rule for the account page and the server action.
+export function acceptedCancellationDecision(input: {
+  isBookingOwner: boolean;
+  currentStatus: string;
+  appointmentStatus: string | null;
+  startsAt: string | null;
+  nowMs: number;
+}) {
+  if (!input.isBookingOwner || normalizeBookingStatus(input.currentStatus) !== "accepted") return "unavailable" as const;
+  if (input.appointmentStatus !== "confirmed" || !input.startsAt) return "unavailable" as const;
+  const startsAtMs = Date.parse(input.startsAt);
+  if (!Number.isFinite(startsAtMs)) return "unavailable" as const;
+  if (startsAtMs >= input.nowMs + ACCEPTED_CANCELLATION_NOTICE_MS) return "full_refund" as const;
+  return "too_soon" as const;
+}
+
+export function refundableCancellationPayments<T extends { status: string; amount_cents: number; refunded_cents: number }>(
+  payments: T[],
+) {
+  return payments.filter(
+    (payment) =>
+      (payment.status === "succeeded" || payment.status === "partially_refunded") &&
+      payment.refunded_cents < payment.amount_cents,
+  );
+}
+
 export function acceptanceTransitionAllowed(currentStatus: string) {
   return currentStatus === "pending" || currentStatus === "requested";
 }

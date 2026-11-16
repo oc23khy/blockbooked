@@ -1036,10 +1036,11 @@ export async function payOutstanding(bookingId: string, customerId: string, emai
   if (!booking.data || booking.data.customer_id !== customerId) throw new Error("unauthorized");
   const reserved = await admin
     .from("booking_appointments")
-    .select("id")
+    .select("booking_id")
     .eq("booking_id", bookingId)
     .in("status", ["held", "confirmed"])
     .maybeSingle();
+  if (reserved.error) throw new Error("The appointment could not be checked.");
   if (!reserved.data) throw new Error("Choose an appointment time before paying.");
   const payments = await admin.from("payments").select("id, status, milestone_id").eq("booking_id", bookingId);
   const rows = payments.data ?? [];

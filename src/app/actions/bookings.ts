@@ -203,10 +203,13 @@ export async function reserveBookingAppointment(formData: FormData) {
   }
   const existing = await session.supabase
     .from("booking_appointments")
-    .select("id")
+    .select("booking_id")
     .eq("booking_id", bookingId)
     .in("status", ["held", "confirmed"])
     .maybeSingle();
+  if (existing.error) {
+    redirect(`/account?error=${encodeURIComponent("The appointment could not be checked. Try again.")}`);
+  }
   if (existing.data) redirect("/account?notice=This%20request%20already%20holds%20an%20appointment.");
   const schedule = await loadPublicSchedule(booking.data.provider_id);
   const service = schedule?.services.find((item) => item.id === serviceId);
@@ -305,11 +308,14 @@ export async function updateBookingStatus(formData: FormData) {
   if (nextStatus === "accepted" && booking.appointment_required !== false) {
     const reserved = await session.supabase
       .from("booking_appointments")
-      .select("id")
+      .select("booking_id")
       .eq("booking_id", bookingId)
       .eq("status", "held")
       .maybeSingle();
-    if (reserved.error || !reserved.data) {
+    if (reserved.error) {
+      redirect(`${returnTo}?error=${encodeURIComponent("The appointment could not be checked. Try again.")}`);
+    }
+    if (!reserved.data) {
       redirect(`${returnTo}?error=${encodeURIComponent("Accepting requires a reserved appointment. A time of day is not an appointment.")}`);
     }
     const payment = await session.supabase

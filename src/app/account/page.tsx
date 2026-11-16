@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { updateProfile } from "@/app/actions/auth";
 import { BookingCard, type BookingView } from "@/components/booking-card";
+import { selectDisplayedAppointments } from "@/lib/bookings/displayed-appointment";
 import { readBookingCreationDecision } from "@/lib/bookings/maintenance";
 import { BOOKING_MAINTENANCE_MESSAGE } from "@/lib/bookings/maintenance-decision";
 import { accountPaymentNotice } from "@/lib/payments/account-notice";
@@ -111,19 +112,13 @@ export default async function AccountPage({
     bookingIds.length > 0
       ? await supabase.from("booking_appointments").select("booking_id, starts_at, status").in("booking_id", bookingIds)
       : { data: [], error: null };
-  const appointments = new Map<string, { startsAt: string; status: string }>();
-  for (const row of (appointmentQuery.error ? [] : appointmentQuery.data ?? []) as {
-    booking_id: string;
-    starts_at: string;
-    status: string;
-  }[]) {
-    const current = appointments.get(row.booking_id);
-    const active = row.status === "confirmed" || row.status === "held";
-    if (!active) continue;
-    if (!current || (row.status === "confirmed" && current.status !== "confirmed")) {
-      appointments.set(row.booking_id, { startsAt: row.starts_at, status: row.status });
-    }
-  }
+  const appointments = selectDisplayedAppointments(
+    (appointmentQuery.error ? [] : appointmentQuery.data ?? []) as {
+      booking_id: string;
+      starts_at: string;
+      status: string;
+    }[],
+  );
   const rescheduleQuery =
     bookingIds.length > 0
       ? await supabase

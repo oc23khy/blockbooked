@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ProviderEditor } from "@/components/provider-editor";
 import { ScheduleManager } from "@/components/schedule-manager";
 import { BookingCard, type BookingView } from "@/components/booking-card";
+import { selectDisplayedAppointments } from "@/lib/bookings/displayed-appointment";
 import { connectStripeAccount } from "@/app/actions/payments";
 import { refreshConnectedAccount } from "@/lib/payments/service";
 import { stripeTestKeyConfigured } from "@/lib/payments/stripe-server";
@@ -124,8 +125,12 @@ export default async function DashboardPage({
     listing && bookingIds.length > 0
       ? await supabase.from("booking_appointments").select("booking_id, starts_at, status").in("booking_id", bookingIds)
       : { data: [], error: null };
-  const appointments = new Map(
-    ((appointmentQuery.error ? [] : appointmentQuery.data) ?? []).map((row) => [row.booking_id as string, row]),
+  const appointments = selectDisplayedAppointments(
+    ((appointmentQuery.error ? [] : appointmentQuery.data) ?? []) as {
+      booking_id: string;
+      starts_at: string;
+      status: string;
+    }[],
   );
   const rescheduleQuery =
     bookingIds.length > 0
@@ -184,11 +189,12 @@ export default async function DashboardPage({
       paymentPlan: plans.get(request.id) ?? null,
       quoteAmountCents: quotes.get(request.id)?.amount_cents ?? null,
       quoteStatus: quotes.get(request.id)?.status ?? null,
-      appointmentStart: (appointments.get(request.id)?.starts_at as string | undefined) ?? null,
+      appointmentStart: appointments.get(request.id)?.startsAt ?? null,
+      appointmentStatus: appointments.get(request.id)?.status ?? null,
       timeZone: listing?.timezone ?? "America/Chicago",
       acceptanceDeadline: displayedDeadline(
         request.acceptance_deadline ?? null,
-        (appointments.get(request.id)?.starts_at as string | undefined) ?? null,
+        appointments.get(request.id)?.startsAt ?? null,
         Boolean(request.expiration_grace),
         request.created_at ?? null,
         payments.get(request.id)?.status === "succeeded" || payments.get(request.id)?.status === "partially_refunded",

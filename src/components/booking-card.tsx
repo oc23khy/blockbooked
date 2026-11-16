@@ -7,6 +7,7 @@ import { formatUsd } from "@/lib/payments/money";
 import { PRICE_ADJUSTMENT_MESSAGE } from "@/lib/scheduling/reschedule";
 import { BookingStatusBadge } from "@/components/booking-status-badge";
 import { acceptedCancellationDecision, customerCanCancel, providerActions, providerCanVerifyPin } from "@/lib/booking-status";
+import { historicalAppointmentLabel } from "@/lib/bookings/displayed-appointment";
 
 export type BookingView = {
   id: string;
@@ -72,6 +73,11 @@ export function BookingCard({
           nowMs: Date.now(),
         })
       : "unavailable";
+  const appointmentLabel = historicalAppointmentLabel({
+    bookingStatus: booking.status,
+    appointmentStatus: booking.appointmentStatus ?? null,
+    hasStart: Boolean(booking.appointmentStart),
+  });
 
   return (
     <li id={`booking-${booking.id}`} className="rounded-3xl border border-line bg-card px-5 py-4">
@@ -85,17 +91,7 @@ export function BookingCard({
               ? shownTime(booking.appointmentStart, booking.timeZone ?? "America/Chicago")
               : `${booking.preferredDate} · ${booking.timeWindow}`}
           </p>
-          {booking.appointmentStart ? (
-            <p className="mt-1 text-sm text-ink/70">
-              {booking.status === "accepted" || booking.status === "completed"
-                ? "Confirmed appointment."
-                : booking.status === "pending"
-                  ? "Held until the provider accepts. A successful payment does not confirm it."
-                  : booking.status === "expired"
-                    ? "The acceptance deadline passed and this time was released."
-                    : "This time was released."}
-            </p>
-          ) : null}
+          {appointmentLabel ? <p className="mt-1 text-sm text-ink/70">{appointmentLabel}</p> : null}
           {booking.status === "pending" && booking.acceptanceDeadline ? (
             <p className="mt-1 text-sm text-ink/70">Accept by {shownTime(booking.acceptanceDeadline, booking.timeZone ?? "America/Chicago")}.</p>
           ) : null}
